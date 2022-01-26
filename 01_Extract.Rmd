@@ -1,0 +1,115 @@
+---
+title: "01_Extract"
+author: "Matthew Coghill"
+date: "1/25/2022"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+This document will be used to extract the spectral indices from the KXI project in Beaverdell. First, import relevenat packages
+
+```{r Packages}
+
+library(tidyverse)
+library(sf)
+library(terra)
+
+```
+
+Next, let's load up the raster files for the project
+
+```{r raster import}
+
+rast_dir <- file.path("./00_rasters")
+spec_indices <- rast(list.files(rast_dir, full.names = TRUE))
+
+```
+
+Using QGIS, I created a few different files. First, we have points that contain the attributes of each lane. Next, we have polygons of the lanes themselves. Also, there are polygons of the sampling areas. Finally, for each lane, there are 30 smaller rectangles - this is where data will be extracted to.
+
+```{r shape import}
+
+shp_dir <- file.path("./00_shapes")
+
+lane_ids <- st_read(file.path(shp_dir, "Track Labels.gpkg"), quiet = TRUE)
+lanes <- st_read(file.path(shp_dir, "Tracks.gpkg"))
+lane_segs <- st_read(file.path(shp_dir, "Lane segments.gpkg"))
+
+```
+
+With the shapes loaded, we need to attribute the lanes and the segments as well.
+
+```{r shape data wrangling}
+
+lanes_att <- dplyr::select(lanes, geom) %>% 
+  st_join(lane_ids)
+
+lane_segs_att <- st_join(lane_segs, lanes_att)
+
+lane_segs_full <- lapply(1:nrow(lane_ids), function(x) {
+  lane_start <- lane_ids[x, ]
+  lane_seg_start <- lane_segs_att %>% 
+    dplyr::filter(Block == lane_start$Block,
+                  Lane.Number == lane_start$Lane.Number,
+                  Treatment_Passes == lane_start$Treatment_Passes,
+                  Treatment_Truck == lane_start$Treatment_Truck,
+                  Treatment_Water %in% lane_start$Treatment_Water) # note use of %in% here
+                  # because there are NA values in this column
+  
+  # Return the reverse order of the distances from the point to each segment
+  seg_order <- rev(order(st_distance(lane_start, lane_seg_start)))
+  
+  # Apply increasing meter value to those row numbers in that order
+  lane_seg_list <- lapply(1:length(seg_order), function(y) {
+    seg_id <- seg_order[y]
+    lane_seg_dist <- lane_seg_start[seg_id, ] %>% 
+      dplyr::mutate(Distance = y)
+  }) %>% do.call(rbind, .)
+  
+  return(lane_seg_list)
+}) %>% do.call(rbind, .) %>% 
+  dplyr::mutate(Block = factor(Block, levels = c("A", "B", "C")),
+                Lane.Number = as.integer(Lane.Number),
+                Treatment_Passes = factor(Treatment_Passes, levels = c(1, 10, 30)),
+                Treatment_Truck = factor(Treatment_Truck, levels = c("Control", "Standard", "KXI")),
+                Treatment_Water = factor(Treatment_Water, levels = c("A", "W")),
+                Distance = as.integer(Distance))
+
+```
+
+Perfect! Now we can extract raster data at each of these specified polygons and get a full suite of data. Look at means first because why not? On my laptop, this took ~2.5 minutes to run but results will vary by computer.
+
+```{r}
+
+spec_data_mean <- cbind(
+  lane_segs_full,
+  extract(spec_indices, vect(lane_segs_full), fun = mean, na.rm = TRUE, weights = TRUE) %>% 
+    data.frame() %>% 
+    dplyr::select(-ID))
+
+```
+
+Alternatively, we can get the value for each pixel within those polygons and then do our own calculations from there. Note: The "weights" column indicates how much of a pixel is within the polygon, used for calculating weighted means if interested. This typically creates ~3750 rows of data per 1m x 2.5m area, so for 1260 boxes that approaches 5,000,000 rows of data. When moving forward with this, it may be beneficial to start using the data.table package to harness faster math processes in a data frame.
+
+```{r}
+
+spec_data_list <- extract(spec_indices, vect(lane_segs_full), na.rm = TRUE, weights = TRUE, list = TRUE)
+spec_data_all <- lapply(seq_along(spec_data_list), function(x) {
+  spec_data_list[[x]] %>% 
+    data.frame() %>% 
+    setNames(c(names(spec_indices), "weights")) %>% 
+    dplyr::mutate(Block = lane_segs_full[x, ]$Block,
+                  Lane.Number = lane_segs_full[x, ]$Lane.Number,
+                  Treatment_Passes = lane_segs_full[x, ]$Treatment_Passes,
+                  Treatment_Truck = lane_segs_full[x, ]$Treatment_Truck,
+                  Treatment_Water = lane_segs_full[x, ]$Treatment_Water,
+                  Distance = lane_segs_full[x, ]$Distance) %>% 
+    dplyr::select(Block, Lane.Number, Treatment_Passes, Treatment_Truck, Treatment_Water, Distance, 
+                  names(spec_indices), weights)
+}) %>% do.call(rbind, .)
+
+```
+
