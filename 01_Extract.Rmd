@@ -24,7 +24,10 @@ Next, let's load up the raster files for the project
 ```{r raster import}
 
 rast_dir <- file.path("./00_rasters")
+out_dir <- file.path("./01_data_output")
+
 spec_indices <- rast(list.files(rast_dir, full.names = TRUE))
+dir.create(out_dir, showWarnings = FALSE)
 
 ```
 
@@ -90,6 +93,9 @@ spec_data_mean <- cbind(
     data.frame() %>% 
     dplyr::select(-ID))
 
+st_drop_geometry(spec_data_mean) %>% 
+  write.csv(file.path(out_dir, "mean_index_values.csv"), row.names = FALSE)
+
 ```
 
 Alternatively, we can get the value for each pixel within those polygons and then do our own calculations from there. Note: The "weights" column indicates how much of a pixel is within the polygon, used for calculating weighted means if interested. This typically creates ~3750 rows of data per 1m x 2.5m area, so for 1260 boxes that approaches 5,000,000 rows of data. When moving forward with this, it may be beneficial to start using the data.table package to harness faster math processes in a data frame.
@@ -110,6 +116,8 @@ spec_data_all <- lapply(seq_along(spec_data_list), function(x) {
     dplyr::select(Block, Lane.Number, Treatment_Passes, Treatment_Truck, Treatment_Water, Distance, 
                   names(spec_indices), weights)
 }) %>% do.call(rbind, .)
+
+write.csv(file.path(out_dir, "pixel_index_values.csv"), row.names = FALSE)
 
 ```
 
