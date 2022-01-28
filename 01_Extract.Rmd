@@ -38,8 +38,8 @@ Using QGIS, I created a few different files. First, we have points that contain 
 shp_dir <- file.path("./00_shapes")
 
 lane_ids <- st_read(file.path(shp_dir, "Track Labels.gpkg"), quiet = TRUE)
-lanes <- st_read(file.path(shp_dir, "Tracks.gpkg"))
-lane_segs <- st_read(file.path(shp_dir, "Lane segments.gpkg"))
+lanes <- st_read(file.path(shp_dir, "Tracks.gpkg"), quiet = TRUE)
+lane_segs <- st_read(file.path(shp_dir, "Lane segments.gpkg"), quiet = TRUE)
 
 ```
 
