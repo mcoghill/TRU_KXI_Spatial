@@ -1,0 +1,159 @@
+---
+title: "04_Beaverdell_Soil"
+output: html_document
+date: "2023-01-17"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+
+```{r Libraries}
+
+library(tidyverse)
+library(ggplot2)
+library(lme4)
+library(car)
+library(lmerTest)
+library(emmeans)
+
+```
+
+
+
+```{r Read data}
+
+soil_dir <- file.path("./01_data/Soils")
+soil_turn <- readxl::read_xlsx(
+  file.path(soil_dir, "2022 KXI_bulk density.xlsx"), sheet = 1) %>%
+  janitor::clean_names() %>%
+  mutate(volume = (30.2 + 20.8 + 30.7 + 31.9 + 31.8) / 5, 
+         bd = dry_sieved_soil_g / volume)
+
+soil_slope <- readxl::read_xlsx(
+  file.path(soil_dir, "2022 KXI_bulk density.xlsx"), sheet = 2) %>%
+  janitor::clean_names() %>%
+  mutate(volume = (30.2 + 20.8 + 30.7 + 31.9 + 31.8) / 5,
+         bd = dry_sieved_soil_g / volume)
+
+#volume is from water/cylinder tests
+#cm3 = 10*1.905
+#pi*((1.905/2)^2)*10 = 28.5
+
+```
+
+
+
+```{r Turn_Bulk density}
+
+bd.sp.lm <- lmer(sqrt(bd) ~ vehicle * passes + (1|block / distance),
+                 data = soil_turn, na.action = na.exclude)
+
+anova(bd.sp.lm)
+plot(resid(bd.sp.lm))
+qqnorm(resid(bd.sp.lm))
+shapiro.test(resid(bd.sp.lm))
+
+soil_em_df <- as.data.frame(fortify(multcomp::cld(emmeans(
+  bd.sp.lm, ~ vehicle * passes), Letters = letters)))
+
+soil.turn <- ggplot(
+  data = soil_turn, aes(x = as.factor(passes), y = bd, color = vehicle)) +
+  geom_boxplot(fill = "white") +
+  #scale_fill_manual(values=Paleta) +
+  ylab("Bulk Density (g/cm3)") +
+  xlab("Number of Passes") +
+  ylim(0, 1.5) +
+  ggtitle(" KXI vs. Standard Truck - Turning experiment") +
+  #facet_wrap(~vehicle) +
+    #geom_text(data = ann_text1, aes(label ="Vehicle               NS"))+
+    #geom_text(data = ann_text2, aes(label ="Water                 NS"))+
+    #geom_text(data = ann_text3, aes(label ="Vehicle x Water  NS"))+
+  #geom_text(data = soil_em_df, aes(y = 1.5, label = .group))+
+  scale_color_manual(
+    breaks = c("None", "KXI", "Std"),limits = c("None", "KXI", "Std"),
+    values=c("None" = "black", "KXI" = "red", "Std" = "gray60"))+
+  #scale_fill_manual(breaks= c("None", "KXI", "Std"),limits= c("None", "KXI", "Std"),values=c("None"="white","KXI"="white", "Std"="white")
+  #)#+
+  theme_bw() +
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 14, face = "bold"), 
+    strip.text = element_text(size = 14)) +
+  theme(
+    legend.position = c(0.5, 0.8), 
+    legend.box.background = element_rect(colour = "black"),
+    legend.direction = "horizontal", axis.ticks.length = unit(0.5, "cm"),
+    axis.text = element_text(size = 12),
+    axis.title = element_text(size = 15)) +
+  guides(fill = guide_legend(title = "Vehicle type", title.position = "top",
+                             title.hjust = 0.5)) +
+  theme(
+    panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+    panel.background = element_blank(), axis.line = element_line(colour = "black"))
+
+soil.turn
+
+#  tiff("soil.turn.tiff", width = 15, height= 10, units ='cm', res=300)
+#  soil.turn
+# dev.off()
+
+```
+
+
+
+```{r}
+
+bd.sp.lm2 <- lmer(sqrt(bd) ~ vehicle * distance + (1|block), data = soil_slope, 
+                  na.action = na.exclude)
+
+anova(bd.sp.lm2)
+plot(resid(bd.sp.lm2))
+qqnorm(resid(bd.sp.lm2))
+shapiro.test(resid(bd.sp.lm2))
+
+soil_em_df2 <- as.data.frame(fortify(multcomp::cld(emmeans(
+  bd.sp.lm2, ~ vehicle * distance), Letters = letters)))
+
+soil.slope2 <- ggplot(data = soil_slope, aes(x = distance, y = bd, color = vehicle)) +
+  geom_boxplot(fill="white") +
+  #scale_fill_manual(values=Paleta) +
+  ylab("Bulk Density (g/cm3)") +
+  xlab("Area on the slope") +
+  ylim(0, 1.5) +
+  ggtitle(" KXI vs. Standard Truck - Slope experiment") +
+  #facet_wrap(~vehicle) +
+  #geom_text(data = ann_text1, aes(label ="Vehicle               NS"))+
+  #geom_text(data = ann_text2, aes(label ="Water                 NS"))+
+  #geom_text(data = ann_text3, aes(label ="Vehicle x Water  NS"))+
+  #geom_text(data = soil_em_df2, aes(y = 1.5, label = .group))+
+  scale_color_manual(
+    breaks = c("None", "KXI", "Std"),
+    limits = c("None", "KXI", "Std"),
+    values = c("None" = "black", "KXI" = "red", "Std" = "gray60")) +
+  #scale_fill_manual(breaks= c("None", "KXI", "Std"),limits= c("None", "KXI", "Std"),values=c("None"="white","KXI"="white", "Std"="white")
+  #)#+
+  theme_bw() +
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 14, face = "bold"),
+    strip.text = element_text(size = 14)) +
+  theme(
+    legend.position = c(0.5, 0.8), 
+    legend.box.background = element_rect(colour = "black"),
+    legend.direction = "horizontal", axis.ticks.length = unit(0.5, "cm"),
+    axis.text = element_text(size = 12),
+    axis.title = element_text(size = 15)) +
+  guides(fill = guide_legend(title = "Vehicle type", title.position = "top",
+                             title.hjust = 0.5)) +
+  theme(
+    panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+    panel.background = element_blank(), axis.line = element_line(colour = "black"))
+
+soil.slope2
+
+#  tiff("soil.slope.tiff", width = 15, height= 10, units ='cm', res=300)
+#  soil.slope
+# dev.off()
+
+```

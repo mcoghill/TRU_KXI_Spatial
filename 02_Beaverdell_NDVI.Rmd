@@ -1,0 +1,423 @@
+---
+title: "02_Beaverdell_NDVI"
+author: "Matthew Coghill"
+date: "2023-01-16"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+This script will convert Laura's NDVI file from the Beaverdell folder to run properly.
+
+```{r Libraries}
+
+library(tidyverse)
+library(ggplot2)
+library(reshape2)
+library(lme4)
+library(LMERConvenienceFunctions)
+library(lmerTest)
+library(emmeans)
+library(car)
+
+```
+
+
+
+```{r Data and new columns}
+
+rs_dir <- file.path("./01_data/Remote_Sensing")
+
+ndvi <- read.csv(
+  file.path(rs_dir, "Beaverdell_Drought_mean_index_values.csv"), header = TRUE) %>%
+  mutate(truck = if_else(Vehicle == "Control", "none", Vehicle),
+         water = if_else(Vehicle == "Control", "A", Water),
+         distance = as.factor(Distance)) %>%
+         mutate(replace(., is.na(.), 0))
+
+```
+
+
+
+```{r Single pass}
+
+ndvi.single <- ndvi %>%
+  filter(Passes <= 1)
+
+```
+
+
+
+```{r Ambient plots only}
+
+ndvi.lmer <- lmer(log(NDVI) ~ truck * Distance + (1|Block), 
+                  data = subset(ndvi.single, water == "A"))
+
+anova(ndvi.lmer)
+plot(ndvi.lmer)
+qqnorm(resid(ndvi.lmer))
+hist(resid(ndvi.lmer))
+shapiro.test(resid(ndvi.lmer))
+
+ndvi.lmer.em <- multcomp::cld(emmeans(ndvi.lmer, ~ truck * Distance), Letters = letters) 
+ndvi.lmer.em <- multcomp::cld(emmeans(ndvi.lmer, ~ truck), Letters = letters) 
+
+ndvi.all.plot <- ndvi.single %>%
+  filter(water == "A") %>%
+  ggplot(aes(x = Distance, y = NDVI, color = truck)) +
+  geom_point() +
+  geom_smooth(method = glm, formula = y ~ x, se = TRUE) +  # theme(legend.position = "none",
+  facet_wrap(~water) +
+  theme_bw() +
+  labs(y = "NDVI", x = "Distance") +
+  #scale_color_grey() +
+  guides(fill = guide_legend(title = "Treatment", title.position = "top", 
+                             title.hjust= 0.5)) +
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+        panel.background = element_blank(), axis.line = element_line(colour = "black"))
+  # geom_text(data = ndvi.lmer.em, aes(y = 1, label = .group)) +
+  # ylim(0, 1)
+
+ndvi.all.plot
+
+```
+
+
+
+```{r Single pass_all}
+
+mean.ndvi.single <- ndvi.single %>%
+  group_by(Block, truck, water) %>%
+  summarise(mean.ndvi = mean(NDVI))
+
+```
+
+
+
+```{r Ambient only plots}
+
+kruskal.mod <- kruskal.test((mean.ndvi) ~ truck ,
+                            data = mean.ndvi.single)
+
+mean.ndvi.lmer <- lmer((mean.ndvi) ~ truck + (1|Block), data = mean.ndvi.single)
+anova(mean.ndvi.lmer)
+plot(mean.ndvi.lmer)
+qqnorm(resid(mean.ndvi.lmer))
+hist(resid(mean.ndvi.lmer))
+shapiro.test(resid(mean.ndvi.lmer))
+
+mean.ndvi.lmer.em <- multcomp::cld(emmeans(mean.ndvi.lmer, ~ truck), Letters = letters) 
+
+mean.ndvi.all.plot <-mean.ndvi.single %>%
+  # filter(water=="A") %>%
+  ggplot(aes(x = truck, y = mean.ndvi, color = truck)) +
+  geom_boxplot() +
+  geom_smooth(method = glm, formula = y ~ x, se = TRUE) +
+  facet_wrap(~water) +
+  theme_bw() +
+  labs(y = "mean.ndvi", x = "Distance") +
+  # scale_color_grey() +
+  guides(fill = guide_legend(title = "Treatment", title.position = "top", 
+                             title.hjust = 0.5)) +
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+        panel.background = element_blank(), axis.line = element_line(colour = "black")) +
+  geom_text(data = mean.ndvi.lmer.em, aes(y = 1, label = .group)) +
+  ylim(0, 1)
+
+mean.ndvi.all.plot
+
+```
+
+
+
+```{r Single pass_sampling area}
+
+ndvi.single.sa <- ndvi.single %>%
+  filter(Distance > 10, Distance < 25)
+
+ndvi.lmer.sa <- lmer((NDVI) ~ truck * water + (1|Block:distance),
+                     data = ndvi.single.sa)
+
+anova(ndvi.lmer.sa)
+plot(ndvi.lmer.sa)
+qqnorm(resid(ndvi.lmer.sa))
+hist(resid(ndvi.lmer.sa))
+shapiro.test(resid(ndvi.lmer.sa))
+
+ndvi.lmer.sa.em <- multcomp::cld(emmeans(ndvi.lmer.sa, ~ truck * water), Letters = letters) 
+
+ndvi.sa.plot <- ndvi.single.sa %>%
+  ggplot(aes(x = truck, y = NDVI, color = truck)) +
+  geom_boxplot() +
+  facet_wrap(~water) +
+  theme_bw() +
+  labs(y = "NDVI", x = "Distance") +
+  #scale_color_grey() +
+  scale_color_manual(labels=c("Control","KXI", "Standard"),
+                   limits=c("none","KXI","Standard"),
+                   breaks=c("none","KXI","Standard"),
+                   values=c("black","blue","orange")) +
+  scale_x_discrete(labels=c("Control","KXI", "Standard"),
+                     limits=c("none","KXI","Standard"),
+                     breaks=c("none","KXI","Standard")) +
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+        panel.background = element_blank(), axis.line = element_line(colour = "black")) +
+  geom_text(data = ndvi.lmer.sa.em, aes(y = 1, label = .group)) +
+  ylim(0, 1)
+
+ndvi.sa.plot
+
+```
+
+
+
+```{r Single pass_sampling area_mean}
+
+ndvi.single.sa.mean <- ndvi.single.sa %>%
+  group_by(Block, truck, water) %>%
+  mutate(mean.ndvi = mean(NDVI))
+
+ndvi.lmer.sa.mean <- lmer(log(mean.ndvi) ~ truck * water + (1|Block),
+                          data = ndvi.single.sa.mean)
+
+anova(ndvi.lmer.sa.mean)
+plot(ndvi.lmer.sa.mean)
+qqnorm(resid(ndvi.lmer.sa.mean))
+hist(resid(ndvi.lmer.sa.mean))
+shapiro.test(resid(ndvi.lmer.sa.mean))
+
+ndvi.lmer.sa.mean.em <- multcomp::cld(emmeans(ndvi.lmer.sa.mean, ~ truck*water), 
+                                     Letters = letters) 
+
+ndvi.sa.mean.plot <-ndvi.single.sa.mean %>%
+  ggplot(aes(x = truck, y = mean.ndvi, color = truck)) +
+  geom_boxplot() +
+  facet_wrap(~water) +
+  theme_bw() +
+  labs(y = "NDVI", x = "Distance") +
+  #scale_color_grey() +
+  guides(fill = guide_legend(title = "Treatment", title.position = "top",
+                             title.hjust = 0.5)) +
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+        panel.background = element_blank(), axis.line = element_line(colour = "black")) +
+  geom_text(data = ndvi.lmer.sa.mean.em, aes(y = 1, label = .group)) +
+  ylim(0, 1)
+
+ndvi.sa.mean.plot
+
+```
+
+
+
+```{r Single_start}
+
+ndvi.single.start <- ndvi.single %>%
+  filter(Distance <= 10)
+# group_by(Block, truck,water) %>%
+# summarize(mean=mean(ndvi))
+
+ndvi.lmer.start <- lmer(NDVI ~ truck * water * distance + (1|Block),
+                        data = ndvi.single.start)
+
+anova(ndvi.lmer.start)
+plot(ndvi.lmer.start)
+qqnorm(resid(ndvi.lmer.start))
+hist(resid(ndvi.lmer.start))
+shapiro.test(resid(ndvi.lmer.start))
+
+ndvi.lmer.start.em <- multcomp::cld(emmeans(ndvi.lmer.start, ~ c(truck, water)), 
+                                   Letters = letters)
+
+ndvi.start.plot <- ndvi.single.start %>%
+  ggplot(aes(x = truck, y = NDVI, color = water)) +
+  geom_boxplot(position = position_dodge(), alpha = 0) +
+  facet_wrap(~water) +
+  theme_bw() +
+  labs(y = "NDVI", x = "Treatment") +
+  #scale_color_grey() +
+  # guides(fill = guide_legend(title = "Treatment", title.position = "top",
+  #                            title.hjust = 0.5)) +
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+        panel.background = element_blank(), axis.line = element_line(colour = "black")) +
+  geom_text(data = ndvi.lmer.start.em, aes(y = 1, label = .group)) +
+  ylim(0, 1)
+
+ndvi.start.plot
+
+```
+
+
+
+```{r Single_end}
+
+ndvi.single.end <- ndvi.single %>%
+  filter(Distance >= 25)
+# group_by(Block, truck,water) %>%
+# summarize(mean=mean(NDVI))
+
+ndvi.lmer.end <- lmer(NDVI ~ truck * water + (1|Block:distance),
+                      data = ndvi.single.end)
+
+anova(ndvi.lmer.end)
+plot(ndvi.lmer.end)
+qqnorm(resid(ndvi.lmer.end))
+hist(resid(ndvi.lmer.end))
+shapiro.test(resid(ndvi.lmer.end))
+
+ndvi.lmer.end.em = multcomp::cld(emmeans(ndvi.lmer.end, ~ c(truck, water)), 
+                                 Letters = letters)
+
+ndvi.end.plot <-ndvi.single.end %>%
+  ggplot(aes(x = truck, y = NDVI, color = water)) +
+  geom_boxplot(position = position_dodge(), alpha = 0) +
+  facet_wrap(~water) +
+  theme_bw() +
+  labs(y = "NDVI", x = "Treatment") +
+  #scale_color_grey() +
+  # guides(fill = guide_legend(title = "Treatment", title.position = "top",
+  #                            title.hjust = 0.5)) +
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+        panel.background = element_blank(), axis.line = element_line(colour = "black")) + 
+  geom_text(data = ndvi.lmer.end.em, aes(y = 1, label = .group)) +
+  ylim(0, 1)
+
+ndvi.end.plot
+
+```
+
+
+
+```{r KXI}
+
+ndvi.KXI <- ndvi %>%
+  filter(Vehicle != "Standard") %>%
+  mutate(passes = as.factor(Passes),
+         distance = as.factor(Distance))
+
+ndvi.lmer.kxi <- lmer(NDVI ~ passes * water + (1|Block:distance), data = ndvi.KXI)
+
+anova(ndvi.lmer.kxi)
+plot(ndvi.lmer.kxi)
+qqnorm(resid(ndvi.lmer.kxi))
+hist(resid(ndvi.lmer.kxi))
+shapiro.test(resid(ndvi.lmer.kxi))
+
+ndvi.lmer.em <- multcomp::cld(emmeans(ndvi.lmer.kxi, ~ passes * water), 
+                              Letters = letters) 
+
+```
+
+
+
+```{r KXI_sampling area}
+
+ndvi.KXI.sa <- ndvi.KXI %>%
+  filter(Distance > 10 & Distance < 25)
+
+ndvi.lmer.sa <- lmer(NDVI ~ passes * water + (1|Block), data = ndvi.KXI.sa)
+
+anova(ndvi.lmer.sa)
+plot(ndvi.lmer.sa)
+qqnorm(resid(ndvi.lmer.sa))
+hist(resid(ndvi.lmer.sa))
+shapiro.test(resid(ndvi.lmer.sa))
+
+ndvi.lmer.sa.em <- multcomp::cld(emmeans(ndvi.lmer.sa, ~ passes * water), 
+                                 Letters = letters) 
+
+ndvi.sa.plot <- ndvi.KXI.sa %>%
+  ggplot(aes(x = passes, y = NDVI, color = water)) +
+  geom_boxplot(position = position_dodge(), alpha = 0) +
+  facet_wrap(~water) +
+  theme_bw() +
+  labs(y = "NDVI", x = "Treatment") +
+  scale_color_grey() +
+  guides(fill = guide_legend(title = "Treatment", title.position = "top",
+                             title.hjust = 0.5)) +
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+        panel.background = element_blank(), axis.line = element_line(colour = "black")) +
+  geom_text(data = ndvi.lmer.em, aes(y = 1, label = .group)) +
+  ylim(0, 1)
+
+ndvi.sa.plot
+
+```
+
+
+
+```{r KXI_Start}
+
+ndvi.KXI.start <- ndvi.KXI %>%
+  filter(Distance <=10)
+
+ndvi.lmer.start <- lmer(NDVI ~ passes * water + (1|Block:distance),
+                        data = ndvi.KXI.start)
+
+anova(ndvi.lmer.start)
+plot(ndvi.lmer.start)
+qqnorm(resid(ndvi.lmer.start))
+hist(resid(ndvi.lmer.start))
+shapiro.test(resid(ndvi.lmer.start))
+
+ndvi.lmer.start.em <- multcomp::cld(emmeans(ndvi.lmer.start, ~ passes * water), 
+                                    Letters = letters) 
+
+ndvi.start.plot <- ndvi.KXI.start %>%
+  ggplot(aes(x = passes, y = NDVI, color = water)) +
+  geom_boxplot(position = position_dodge(), alpha = 0) +
+  facet_wrap(~water) +
+  theme_bw() +
+  labs(y = "NDVI", x = "Treatment") +
+  scale_color_grey() +
+  guides(fill = guide_legend(title = "Treatment", title.position = "top",
+                             title.hjust = 0.5)) +
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+        panel.background = element_blank(), axis.line = element_line(colour = "black")) +
+  geom_text(data = ndvi.lmer.start.em, aes(y = 1, label = .group)) +
+  ylim(0, 1)
+
+ndvi.start.plot
+
+```
+
+
+
+```{r KXI_End}
+
+ndvi.KXI.end <- ndvi.KXI %>%
+  filter(Distance >=20)
+
+ndvi.lmer.end <- lmer(NDVI ~ passes * water + (1|Block:distance),
+                      data = ndvi.KXI.end)
+
+anova(ndvi.lmer.end)
+plot(ndvi.lmer.end)
+qqnorm(resid(ndvi.lmer.end))
+hist(resid(ndvi.lmer.end))
+shapiro.test(resid(ndvi.lmer.end))
+
+ndvi.lmer.end.em <- multcomp::cld(emmeans(ndvi.lmer.end, ~ passes * water), 
+                                  Letters = letters) 
+
+ndvi.end.plot <- ndvi.KXI.end %>%
+  ggplot(aes(x = passes, y = NDVI, color = water)) +
+  geom_boxplot(position = position_dodge(), alpha = 0) +
+  facet_wrap(~water) +
+  theme_bw() +
+  labs(y = "NDVI", x = "Treatment") +
+  scale_color_grey() +
+  guides(fill = guide_legend(title = "Treatment", title.position = "top",
+                             title.hjust = 0.5)) +
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+        panel.background = element_blank(), axis.line = element_line(colour = "black")) +
+  geom_text(data = ndvi.lmer.end.em, aes(y = 1, label = .group)) +
+  ylim(0, 1)
+
+ndvi.end.plot
+
+```
+
+no internet to find other values from rasters
+save figures

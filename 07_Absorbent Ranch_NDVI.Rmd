@@ -1,0 +1,772 @@
+---
+title: "07_Absorbent Ranch_NDVI"
+output: html_document
+date: "2023-01-17"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+
+```{r Libraries}
+
+library(tidyverse)
+library(ggplot2)
+library(reshape2)
+library(lme4)
+library(LMERConvenienceFunctions)
+library(lmerTest)
+library(emmeans)
+library(car)
+library(cowplot)
+
+```
+
+
+
+```{r Data and new columns}
+
+rs_dir <- file.path("./01_data/Remote_Sensing")
+slope <- read.csv(
+  file.path(rs_dir, "Red_Lake_Hills_mean_index_values.csv"), header = TRUE) %>%
+  mutate(truck = if_else(Vehicle == "Control", "none", Vehicle)) %>%
+  mutate(replace(., is.na(.), 0)) %>%
+  select(-Vehicle) %>%
+  janitor::clean_names()
+
+```
+
+
+
+```{r Select all but 30 and average}
+
+# no difference with averaging, so run model to include distance as a factor
+slope_avg <- slope %>%
+  filter(distance < 30) %>%
+  group_by(block, distance, truck) %>%
+  mutate(ndvi = mean(ndvi), gndvi = mean(ndvi))
+
+```
+
+Run analysis for ndvi and gndvi with distance as a fixed effect
+
+```{r Slope experiment NDVI}
+
+ndvi.lmer <- lmer((ndvi) ~ truck * as.factor(distance) + (1|block), data = slope)
+anova(ndvi.lmer)
+plot(ndvi.lmer)
+qqnorm(resid(ndvi.lmer))
+hist(resid(ndvi.lmer))
+shapiro.test(resid(ndvi.lmer))
+
+ndvi.lmer.truck.em <- multcomp::cld(emmeans(
+  ndvi.lmer, ~ truck), Letters = letters)
+ndvi.lmer.distance.em <- multcomp::cld(emmeans(
+  ndvi.lmer, ~ distance), Letters = letters)
+
+ndvi.slope.plot <- slope %>%
+  ggplot(aes(x = truck, y = ndvi, color = truck)) +
+  geom_boxplot() +
+  theme_bw() +
+  labs(y = "NDVI", x = "Vehicle") +
+  #scale_color_grey() +
+  scale_color_manual(
+    labels = c("Control", "KXI", "Standard"),
+    limits = c("none", "KXI", "Standard"),
+    breaks = c("none", "KXI", "Standard"),
+    values = c("black", "red", "grey"),
+    name = "Vehicle") +
+  scale_x_discrete(
+    labels = c("Control", "KXI", "Standard"),
+    limits = c("none", "KXI", "Standard"),
+    breaks = c("none", "KXI", "Standard")) +
+  theme(
+    panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+    panel.background = element_blank(), 
+    axis.line = element_line(colour = "black")) +
+  geom_text(data = ndvi.lmer.truck.em, aes(y = 1, label = .group), color="black") +
+  ylim(0, 1)
+
+ndvi.slope.plot
+
+#  tiff("ndvi.slope.plot.tiff", width = 10, height= 8, units ='cm', res=300)
+#  ndvi.slope.plot
+# dev.off()
+
+```
+
+
+
+```{r Slope experiment GNDVI}
+
+gndvi.lmer <- lmer((gndvi) ~ truck * as.factor(distance) + (1|block), 
+                   data = slope)
+anova(gndvi.lmer)
+plot(gndvi.lmer)
+qqnorm(resid(gndvi.lmer))
+hist(resid(gndvi.lmer))
+shapiro.test(resid(gndvi.lmer))
+
+gndvi.lmer.truck.em <- multcomp::cld(emmeans(
+  gndvi.lmer, ~ truck), Letters = letters) 
+gndvi.lmer.distance.em <- multcomp::cld(emmeans(
+  gndvi.lmer, ~ distance), Letters = letters) 
+
+gndvi.slope.plot <- slope %>%
+  ggplot(aes(x = truck, y = gndvi, color = truck)) +
+  geom_boxplot() +
+  theme_bw() +
+  labs(y = "GNDVI", x = "Vehicle") +
+  #scale_color_grey() +
+  scale_color_manual(
+    labels = c("Control","KXI", "Standard"),
+    limits = c("none", "KXI", "Standard"),
+    breaks = c("none", "KXI", "Standard"),
+    values = c("black", "red", "grey"),
+    name = "Vehicle") +
+  scale_x_discrete(
+    labels = c("Control","KXI", "Standard"),
+    limits = c("none", "KXI", "Standard"),
+    breaks = c("none", "KXI", "Standard")) +
+  theme(
+    panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+    panel.background = element_blank(), 
+    axis.line = element_line(colour = "black")) +
+  geom_text(data = gndvi.lmer.truck.em, aes(y = 1, label = .group),
+            color = "black")+
+  ylim(0, 1)
+
+gndvi.slope.plot
+
+#  tiff("gndvi.slope.plot.tiff", width = 10, height= 8, units ='cm', res=300)
+#  gndvi.slope.plot
+# dev.off()
+
+plot_0 <- ggdraw() + 
+  cowplot::draw_label(
+    "Slope experiment - Averaged across entire lane", 
+    size = 14, fontface = "bold")
+
+slope_combined_plot <- plot_grid(plot_0, ndvi.slope.plot, gndvi.slope.plot, 
+                                 ncol = 1, nrows = 2, rel_heights = c(0.5, 3, 3.5),
+                                 labels = c("", "A", "B"))
+
+slope_combined_plot
+
+#  tiff("ndvi.gndvi.slope.plot.tiff", width = 15, height= 20, units ='cm', res=300)
+#  slope_combined_plot
+# dev.off()
+
+
+```
+
+
+```{r Turning experiment}
+
+turns <- read.csv(
+  file.path(rs_dir, "Red_Lake_Turns_mean_index_values.csv"), header = TRUE) %>%
+  mutate(truck = if_else(Vehicle == "Control", "none", Vehicle)) %>%
+  mutate(replace(., is.na(.), 0)) %>%
+  select(-Vehicle) %>%
+  janitor::clean_names()
+
+# Select all up to 35 m
+
+turns_35 <- turns %>%
+  filter(distance <= 35) %>%
+  mutate(type = if_else(turn == "Straight", "Straight", "Turn"))
+
+```
+
+Run analysis for ndvi and gndvi with distance as a fixed effect
+
+```{r Turning experiment NDVI}
+
+ndvi.lmer <- lmer((ndvi) ~ truck * as.factor(distance) + (1|block),
+                  data = turns_35)
+
+anova(ndvi.lmer)
+plot(ndvi.lmer)
+qqnorm(resid(ndvi.lmer))
+hist(resid(ndvi.lmer))
+shapiro.test(resid(ndvi.lmer))
+
+ndvi.lmer.truck.em <- multcomp::cld(emmeans(
+  ndvi.lmer, ~ truck), Letters = letters) 
+ndvi.lmer.distance.em <- multcomp::cld(emmeans(
+  ndvi.lmer, ~ distance), Letters = letters) 
+
+ndvi.turns.plot <- turns_35 %>%
+  ggplot(aes(x = truck, y = ndvi, color = truck)) +
+  geom_boxplot() +
+  theme_bw() +
+  labs(y = "NDVI", x = "Vehicle") +
+  # scale_color_grey() +
+  scale_color_manual(
+    labels = c("Control", "KXI", "Standard"),
+    limits = c("none", "KXI", "Standard"),
+    breaks = c("none", "KXI", "Standard"),
+    values = c("black", "red", "grey"),
+    name = "Vehicle") +
+  scale_x_discrete(
+    labels = c("Control", "KXI", "Standard"),
+    limits = c("none", "KXI", "Standard"),
+    breaks = c("none", "KXI", "Standard")) +
+  theme(
+    panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+    panel.background = element_blank(), axis.line = element_line(colour = "black")) +
+  geom_text(data = ndvi.lmer.truck.em, aes(y = 1, label = .group), color="black") +
+  ylim(0, 1)
+
+ndvi.turns.plot
+
+#  tiff("ndvi.turns.plot.tiff", width = 10, height= 8, units ='cm', res=300)
+#  ndvi.turns.plot
+# dev.off()
+
+```
+
+
+
+```{r Turning experiment NDVI by truck and No. passes}
+
+ndvi.lmer <- lmer((ndvi) ~ truck * as.factor(passes) * type + (1|block), 
+                  data = turns_35)
+
+anova(ndvi.lmer)
+plot(ndvi.lmer)
+qqnorm(resid(ndvi.lmer))
+hist(resid(ndvi.lmer))
+shapiro.test(resid(ndvi.lmer))
+
+ndvi.lmer.truck.em <- multcomp::cld(emmeans(
+  ndvi.lmer, ~ truck*passes), Letters = letters) 
+ndvi.lmer.turn.em <- multcomp::cld(emmeans(
+  ndvi.lmer, ~ passes), Letters = letters) 
+# ndvi.lmer.turn.truck.em <- multcomp::cld(emmeans(
+#   ndvi.lmer, ~ passes * truck), Letters = letters) 
+# ndvi.lmer.turn.truck.em <- multcomp::cld(emmeans(
+#   ndvi.lmer, "truck", by = c("passes"), Letters = letters))
+# ndvi.lmer.turn.truck.em <- multcomp::cld(emmeans(
+#   ndvi.lmer, "truck", by = c("type"), Letters = letters))
+
+ndvi.turns.truck.plot <- turns_35 %>%
+  ggplot(aes(x = as.factor(passes), y = ndvi, color = truck)) +
+  geom_boxplot() +
+  theme_bw() +
+  labs(y = "NDVI", x = "") +
+  #scale_color_grey() +
+  scale_color_manual(
+    labels = c("None", "KXI", "Standard"),
+    limits = c("none", "KXI", "Standard"),
+    breaks = c("none", "KXI", "Standard"),
+    values = c("black", "red", "gray60")) +
+ # scale_x_discrete(labels=c("None","KXI", "Standard"),
+  #                 limits=c("none","KXI","Standard"),
+   #                breaks=c("none","KXI","Standard")) +
+  #ggtitle("turns experiment - NDVI averaged all turns along turns") +
+  labs(color="Vehicle") +
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 14, face = "bold"),
+    strip.text = element_text(size = 14)) +
+  theme(
+    legend.position = c(0.5, 0.2), legend.text = element_text(size = 12), 
+    legend.title = element_text(size = 12),
+    legend.direction = "horizontal", axis.ticks.length = unit(0.5, "cm"),
+    axis.text.y = element_text(size = 12), axis.text.x = element_blank(),
+    axis.title.y = element_text(size = 15), axis.title.x = element_blank()) +
+  guides(fill = guide_legend(title = "Treatment", title.position = "top",
+                             title.hjust = 0.5)) +
+  theme(
+    panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+    panel.background = element_blank(), axis.line = element_line(colour = "black")) +
+  theme(legend.position = "top") +
+#  geom_text(data = ndvi.lmer.truck.em, aes(y = 1, x=as.factor(passes), color=truck, label = .group))+
+  ylim(0, 1)
+
+ndvi.turns.truck.plot
+
+#  tiff("ndvi.turns.plot.tiff", width = 10, height= 8, units ='cm', res=300)
+#  ndvi.turns.plot
+# dev.off()
+
+```
+
+
+
+```{r Turning experiment GNDVI}
+
+gndvi.lmer <- lmer((gndvi) ~ truck * as.factor(distance) + (1|block), data = turns_35)
+
+anova(gndvi.lmer)
+plot(gndvi.lmer)
+qqnorm(resid(gndvi.lmer))
+hist(resid(gndvi.lmer))
+shapiro.test(resid(gndvi.lmer))
+
+gndvi.lmer.truck.em <- multcomp::cld(emmeans(
+  gndvi.lmer, ~ truck), Letters = letters) 
+gndvi.lmer.distance.em <- multcomp::cld(emmeans(
+  gndvi.lmer, ~ distance), Letter = letters) 
+
+gndvi.turns.plot <- turns_35 %>%
+  ggplot(aes(x = truck, y = gndvi, color = truck)) +
+  geom_boxplot() +
+  theme_bw() +
+  labs(y = "GNDVI", x = "Vehicle") +
+  # scale_color_grey() +
+  scale_color_manual(
+    labels = c("Control", "KXI", "Standard"),
+    limits = c("none", "KXI", "Standard"),
+    breaks = c("none", "KXI", "Standard"),
+    values = c("black", "red", "grey"),
+    name = "Vehicle") +
+  scale_x_discrete(
+    labels = c("Control", "KXI", "Standard"),
+    limits = c("none", "KXI", "Standard"),
+    breaks = c("none", "KXI", "Standard")) +
+  theme(
+    panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+    panel.background = element_blank(), axis.line = element_line(colour = "black")) +
+  geom_text(data = gndvi.lmer.truck.em, aes(y = 1, label = .group), color = "black") +
+  ylim(0, 1)
+
+gndvi.turns.plot
+
+```
+
+
+
+```{r Turning experiment GNDVI by truck and No. passes}
+
+gndvi.lmer <- lmer((gndvi) ~ truck * as.factor(passes) * type + (1|block), 
+                   data = turns_35)
+
+anova(gndvi.lmer)
+plot(gndvi.lmer)
+qqnorm(resid(gndvi.lmer))
+hist(resid(gndvi.lmer))
+shapiro.test(resid(gndvi.lmer))
+
+gndvi.lmer.truck.em <- multcomp::cld(emmeans(
+  gndvi.lmer, ~ truck*passes), Letters = letters) 
+gndvi.lmer.turn.em <- multcomp::cld(emmeans(
+  gndvi.lmer, ~ passes), Letters = letters) 
+# gndvi.lmer.turn.truck.em <- multcomp::cld(emmeans(
+#   gndvi.lmer, ~ passes * truck), Letters = letters) 
+# gndvi.lmer.turn.truck.em <- multcomp::cld(emmeans(
+#   gndvi.lmer, "truck", by = c("passes"), Letters = letters))
+# gndvi.lmer.turn.truck.em <- multcomp::cld(emmeans(
+#   gndvi.lmer, "truck", by = c("type"), Letters = letters))
+
+gndvi.turns.truck.plot <- turns_35 %>%
+  ggplot(aes(x = as.factor(passes), y = gndvi, color = truck)) +
+  geom_boxplot() +
+  theme_bw() +
+  labs(y = "GNDVI", x = "") +
+  # scale_color_grey() +
+  scale_color_manual(
+    labels = c("None", "KXI", "Standard"),
+    limits = c("none", "KXI", "Standard"),
+    breaks = c("none", "KXI", "Standard"),
+    values = c("black", "red", "gray60")) +
+  # scale_x_discrete(labels=c("None","KXI", "Standard"),
+  #                 limits=c("none","KXI","Standard"),
+  #                breaks=c("none","KXI","Standard")) +
+  #ggtitle("turns experiment - gndvi averaged all turns along turns") +
+  labs(color="Vehicle") +
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 14, face = "bold"),
+    strip.text = element_text(size = 14)) +
+  theme(
+    legend.position = c(0.5, 0.2), legend.text = element_text(size = 12), 
+    legend.title = element_text(size = 12),
+    legend.direction = "horizontal", axis.ticks.length = unit(0.5, "cm"),
+    axis.text.y = element_text(size = 12), axis.text.x = element_text(size = 12),
+    axis.title.y = element_text(size = 15), axis.title.x = element_blank()) +
+  guides(fill = guide_legend(title = "Treatment", title.position = "top",
+                             title.hjust = 0.5)) +
+  theme(
+    panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+    panel.background = element_blank(), axis.line = element_line(colour = "black"))+
+  theme(legend.position = "none") +
+ # geom_text(data = gndvi.lmer.truck.em, aes(y = 1, x=as.factor(passes), color=truck, label = .group))+
+  ylim(0, 1)
+
+gndvi.turns.truck.plot
+
+#  tiff("gndvi.turns.plot.tiff", width = 10, height= 8, units ='cm', res=300)
+#  gndvi.turns.plot
+# dev.off()
+
+plot_0 <- ggdraw() + 
+  cowplot::draw_label(
+    "Turning Experiment - Grouped by number of passes", 
+    size = 14, fontface = "bold")
+
+turns_combined_plot <- plot_grid(
+  plot_0, ndvi.turns.truck.plot, gndvi.turns.truck.plot, ncol = 1, nrows = 2, 
+  rel_heights = c(0.5, 3.1, 3), labels = c("", "A", "B"))
+
+turns_combined_plot
+
+# tiff("ndvi.gndvi.turns.passes.plot.tiff", width = 15, height= 20, units ='cm', res=300)
+# turns_combined_plot
+# dev.off()
+
+```
+
+
+
+```{r Turning experiment_Driver behaviour}
+
+# NDVI
+ndvi.lmer.turn.truck.em <- multcomp::cld(emmeans(
+  ndvi.lmer, "truck", by = c("type"), Letters = letters))
+
+ndvi.turns.truck.plot <- turns_35 %>%
+  ggplot(aes(x = as.factor(type), y = ndvi, color = truck)) +
+  geom_boxplot() +
+  theme_bw() +
+  labs(y = "NDVI", x = "") +
+  # scale_color_grey() +
+  scale_color_manual(
+    labels = c("None", "KXI", "Standard"),
+    limits = c("none", "KXI", "Standard"),
+    breaks = c("none", "KXI", "Standard"),
+    values = c("black", "red", "gray60"))+
+  # scale_x_discrete(labels=c("None","KXI", "Standard"),
+  #                 limits=c("none","KXI","Standard"),
+  #                breaks=c("none","KXI","Standard")) +
+  # ggtitle("turns experiment - NDVI averaged all turns along turns") +
+  labs(color = "Vehicle") +
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 14, face = "bold"),
+    strip.text = element_text(size = 14)) +
+  theme(
+    legend.position = c(0.5, 0.2), legend.text = element_text(size = 12), 
+    legend.title = element_text(size = 12),
+    legend.direction = "horizontal", axis.ticks.length = unit(0.5, "cm"),
+    axis.text.y = element_text(size = 12), axis.text.x = element_blank(),
+    axis.title.y = element_text(size = 15), axis.title.x = element_blank()) +
+  guides(fill = guide_legend(title = "Treatment", title.position = "top",
+                             title.hjust = 0.5)) +
+  theme(
+    panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+    panel.background = element_blank(), axis.line = element_line(colour = "black")) +
+  theme(legend.position = "top") +
+  #geom_text(data = ndvi.lmer.turn.truck.em, aes(y = .8, x=as.factor(type), color=truck, label = .group))+
+  ylim(0, 1)
+
+ndvi.turns.truck.plot
+
+#  tiff("ndvi.turns.plot.tiff", width = 10, height= 8, units ='cm', res=300)
+#  ndvi.turns.plot
+# dev.off()
+
+# GNDVI
+gndvi.lmer.turn.truck.em <- multcomp::cld(emmeans(
+  gndvi.lmer, "truck", by = c("type"), Letters = letters))
+
+gndvi.turns.truck.plot <-turns_35 %>%
+  ggplot(aes(x = as.factor(type), y = gndvi, color = truck)) +
+  geom_boxplot() +
+  theme_bw() +
+  labs(y = "GNDVI", x = "") +
+  # scale_color_grey() +
+  scale_color_manual(
+    labels = c("None","KXI", "Standard"),
+    limits = c("none", "KXI", "Standard"),
+    breaks = c("none", "KXI", "Standard"),
+    values = c("black", "red", "gray60")) +
+  # scale_x_discrete(labels=c("None","KXI", "Standard"),
+  #                 limits=c("none","KXI","Standard"),
+  #                breaks=c("none","KXI","Standard")) +
+  #ggtitle("turns experiment - gndvi averaged all turns along turns") +
+  labs(color = "Vehicle") +
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 14, face = "bold"),
+    strip.text = element_text(size = 14)) +
+  theme(
+    legend.position = c(0.5, 0.2), legend.text = element_text(size = 12), 
+    legend.title = element_text(size = 12),
+    legend.direction = "horizontal", axis.ticks.length = unit(0.5, "cm"),
+    axis.text.y = element_text(size = 12),axis.text.x = element_text(size = 12),
+    axis.title.y = element_text(size = 15), axis.title.x = element_blank()) +
+  guides(fill = guide_legend(title = "Treatment", title.position = "top",
+                             title.hjust = 0.5)) +
+  theme(
+    panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+    panel.background = element_blank(), axis.line = element_line(colour = "black")) +
+  theme(legend.position = "none") +
+  #geom_text(data = gndvi.lmer.truck.em, aes(y = 1, x=as.factor(passes), color=truck, label = .group))+
+  ylim(0, 1)
+
+gndvi.turns.truck.plot
+
+#  tiff("gndvi.turns.plot.tiff", width = 10, height= 8, units ='cm', res=300)
+#  gndvi.turns.plot
+# dev.off()
+
+plot_0 <- ggdraw() + 
+  cowplot::draw_label(
+    "Turning Experiment - Grouped by type of behavior", 
+    size = 14, fontface = "bold")
+
+turns_combined_plot <- plot_grid(
+  plot_0, ndvi.turns.truck.plot, gndvi.turns.truck.plot, ncol = 1, nrows = 2, 
+  rel_heights = c(0.5, 3.1, 3), labels = c("", "A", "B"))
+
+turns_combined_plot
+
+# tiff("ndvi.gndvi.turns.passes.plot.tiff", width = 15, height= 20, units ='cm', res=300)
+# turns_combined_plot
+# dev.off()
+
+```
+
+
+
+```{r Filter between 10 & 30}
+
+turns_10_30 <- turns %>%
+  filter(distance <= 30 & distance >= 10)
+
+```
+
+
+
+```{r NDVI 10_30}
+
+ndvi.lmer <- lmer((ndvi) ~ truck * as.factor(distance) + (1|block),
+                  data = turns_10_30)
+
+anova(ndvi.lmer)
+plot(ndvi.lmer)
+qqnorm(resid(ndvi.lmer))
+hist(resid(ndvi.lmer))
+shapiro.test(resid(ndvi.lmer))
+
+ndvi.lmer.truck.em <- multcomp::cld(emmeans(
+  ndvi.lmer, ~ truck), Letters = letters) 
+ndvi.lmer.distance.em <- multcomp::cld(emmeans(
+  ndvi.lmer, ~ distance), Letters = letters) 
+
+ndvi.plot <- turns_10_30 %>%
+  ggplot(aes(x = truck, y = ndvi, color = truck)) +
+  geom_boxplot() +
+  theme_bw() +
+  labs(y = "NDVI", x = "Vehicle") +
+  # scale_color_grey() +
+  scale_color_manual(
+    labels = c("Control", "KXI", "Standard"),
+    limits = c("none", "KXI", "Standard"),
+    breaks = c("none", "KXI", "Standard"),
+    values = c("black", "red", "grey"),
+    name = "Vehicle") +
+  scale_x_discrete(
+    labels = c("Control", "KXI", "Standard"),
+    limits = c("none", "KXI", "Standard"),
+    breaks = c("none", "KXI", "Standard")) +
+  theme(
+    panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+    panel.background = element_blank(), axis.line = element_line(colour = "black")) +
+  geom_text(data = ndvi.lmer.truck.em, aes(y = 1, label = .group), color = "black") +
+  ylim(0, 1)
+
+ndvi.plot
+
+```
+
+
+
+```{r GNDVI 10_30}
+
+gndvi.lmer <- lmer((gndvi) ~ truck * as.factor(distance) + (1|block), 
+                   data = turns_10_30)
+
+anova(gndvi.lmer)
+plot(gndvi.lmer)
+qqnorm(resid(gndvi.lmer))
+hist(resid(gndvi.lmer))
+shapiro.test(resid(gndvi.lmer))
+
+gndvi.lmer.truck.em <- multcomp::cld(emmeans(
+  gndvi.lmer, ~ truck), Letters = letters) 
+gndvi.lmer.distance.em=multcomp::cld(emmeans(
+  gndvi.lmer, ~ distance), Letters = letters) 
+
+gndvi.plot <- turns_10_30 %>%
+  ggplot(aes(x = truck, y = gndvi, color = truck)) +
+  geom_boxplot() +
+  theme_bw() +
+  labs(y = "GNDVI", x = "Vehicle") +
+  # scale_color_grey() +
+  scale_color_manual(
+    labels = c("Control","KXI", "Standard"),
+    limits = c("none", "KXI", "Standard"),
+    breaks = c("none", "KXI", "Standard"),
+    values = c("black", "red", "grey"),
+    name = "Vehicle")+
+  scale_x_discrete(
+    labels = c("Control", "KXI", "Standard"),
+    limits = c("none", "KXI", "Standard"),
+    breaks = c("none", "KXI", "Standard")) +
+  theme(
+    panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+    panel.background = element_blank(), axis.line = element_line(colour = "black")) +
+  geom_text(data = gndvi.lmer.truck.em, aes(y = 1, label = .group), color = "black") +
+  ylim(0, 1)
+
+gndvi.plot
+
+```
+
+
+
+```{r Turning experiment_Driver behaviour_FIX}
+
+# NDVI
+ndvi.lmer <- lmer((ndvi) ~ truck * as.factor(passes) * type + (1|block), 
+                  data = turns_35)
+
+ndvi.lmer.turn.truck.em <- as.data.frame(fortify(multcomp::cld(emmeans(
+  ndvi.lmer, ~ passes * truck, by = "type"), Letters = letters)))
+
+ndvi.labs1 <- ndvi.lmer.turn.truck.em %>%
+  filter(passes == 0)
+ndvi.labs2 <- ndvi.lmer.turn.truck.em %>%
+  filter(passes != 0)
+
+ndvi.turns.truck.plot <- turns_35 %>%
+  ggplot(aes(x = as.factor(type), y = ndvi, color = truck)) +
+  geom_boxplot() +
+  facet_wrap(~passes, labeller = as_labeller(c(
+    `0` = "0 Passes", `2` = "2 Passes", `4` = "4 Passes"))) +
+  theme_bw() +
+  labs(y = "NDVI", x = "") +
+  # scale_color_grey() +
+  scale_color_manual(
+    labels = c("None", "KXI", "Standard"),
+    limits = c("none", "KXI", "Standard"),
+    breaks = c("none", "KXI", "Standard"),
+    values = c("black", "red", "gray60"))+
+  # scale_x_discrete(labels=c("None","KXI", "Standard"),
+  #                 limits=c("none","KXI","Standard"),
+  #                breaks=c("none","KXI","Standard")) +
+  # ggtitle("turns experiment - NDVI averaged all turns along turns") +
+  labs(color = "Vehicle") +
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 10, face = "bold"),
+    strip.text = element_text(size = 10),
+    strip.text.x = element_text(size = 8)) +
+  theme(
+    legend.position = "top", legend.text = element_text(size = 8),
+    legend.title = element_text(size = 8),
+    legend.direction = "horizontal", axis.ticks.length = unit(0.2, "cm"),
+    axis.text.y = element_text(size = 8), axis.text.x = element_blank(),
+    axis.title.y = element_text(size = 11), axis.title.x = element_blank()) +
+  guides(fill = guide_legend(title = "Treatment", title.position = "top",
+                             title.hjust = 0.5)) +
+  theme(
+    panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+    panel.background = element_blank(), axis.line = element_line(colour = "black")) +
+  geom_text(
+    data = ndvi.labs2, 
+    aes(y = 0.9, x = as.factor(type), color = truck, label = .group),
+    nudge_x = c(0.2, -0.2, -0.2, 0.2, 0, 0, -0.2, -0.2, 0.2, 0.2, 0, 0),
+    size = 3, show.legend = FALSE) +
+  geom_text(
+    data = ndvi.labs1,
+    aes(y = 0.9, x = as.factor(type), color = truck, label = .group),
+    size = 3, show.legend = FALSE) +
+  ylim(0, 1)
+
+ndvi.turns.truck.plot
+
+#  tiff("ndvi.turns.plot.tiff", width = 10, height= 8, units ='cm', res=300)
+#  ndvi.turns.plot
+# dev.off()
+
+# GNDVI
+gndvi.lmer <- lmer((gndvi) ~ truck * as.factor(passes) * type + (1|block), 
+                  data = turns_35)
+
+gndvi.lmer.turn.truck.em <- as.data.frame(fortify(multcomp::cld(emmeans(
+  gndvi.lmer, ~ passes * truck, by = "type"), Letters = letters)))
+
+gndvi.labs1 <- gndvi.lmer.turn.truck.em %>%
+  filter(passes == 0)
+gndvi.labs2 <- gndvi.lmer.turn.truck.em %>%
+  filter(passes != 0)
+
+gndvi.turns.truck.plot <- turns_35 %>%
+  ggplot(aes(x = as.factor(type), y = gndvi, color = truck)) +
+  geom_boxplot() +
+  facet_wrap(~passes, labeller = as_labeller(c(
+    `0` = "0 Passes", `2` = "2 Passes", `4` = "4 Passes"))) +
+  theme_bw() +
+  labs(y = "GNDVI", x = "") +
+  # scale_color_grey() +
+  scale_color_manual(
+    labels = c("None","KXI", "Standard"),
+    limits = c("none", "KXI", "Standard"),
+    breaks = c("none", "KXI", "Standard"),
+    values = c("black", "red", "gray60")) +
+  # scale_x_discrete(labels=c("None","KXI", "Standard"),
+  #                 limits=c("none","KXI","Standard"),
+  #                breaks=c("none","KXI","Standard")) +
+  #ggtitle("turns experiment - gndvi averaged all turns along turns") +
+  labs(color = "Vehicle") +
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 10, face = "bold"),
+    strip.text = element_text(size = 10),
+    strip.text.x = element_text(size = 8)) +
+  theme(
+    legend.position = c(0.5, 0.2), legend.text = element_text(size = 8), 
+    legend.title = element_text(size = 8),
+    legend.direction = "horizontal", axis.ticks.length = unit(0.2, "cm"),
+    axis.text.y = element_text(size = 8),axis.text.x = element_text(size = 8),
+    axis.title.y = element_text(size = 11), axis.title.x = element_blank()) +
+  guides(fill = guide_legend(title = "Treatment", title.position = "top",
+                             title.hjust = 0.5)) +
+  theme(
+    panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+    panel.background = element_blank(), axis.line = element_line(colour = "black")) +
+  theme(legend.position = "none") +
+  geom_text(
+    data = gndvi.labs2, 
+    aes(y = 0.8, x = as.factor(type), color = truck, label = .group),
+    nudge_x = c(-0.2, 0.2, -0.2, 0.2, 0, 0, -0.2, -0.2, 0.2, 0.2, 0, 0),
+    size = 3, show.legend = FALSE) +
+  geom_text(
+    data = gndvi.labs1,
+    aes(y = 0.8, x = as.factor(type), color = truck, label = .group),
+    size = 3, show.legend = FALSE) +
+  ylim(0, 1)
+
+gndvi.turns.truck.plot
+
+#  tiff("gndvi.turns.plot.tiff", width = 10, height= 8, units ='cm', res=300)
+#  gndvi.turns.plot
+# dev.off()
+
+plot_0 <- ggdraw() + 
+  cowplot::draw_label(
+    "Turning Experiment - Grouped by number of passes and driver behavior", 
+    size = 10, fontface = "bold")
+
+turns_combined_plot <- plot_grid(
+  plot_0, ndvi.turns.truck.plot, gndvi.turns.truck.plot, ncol = 1, nrows = 2, 
+  rel_heights = c(0.5, 3.1, 3), labels = c("", "A", "B"))
+
+turns_combined_plot
+
+tiff("./02_figures/ndvi.gndvi.turns.passes.plot.tif", width = 15, height = 15, 
+     units = "cm", res = 300)
+turns_combined_plot
+dev.off()
+
+```

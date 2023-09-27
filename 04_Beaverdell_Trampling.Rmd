@@ -1,0 +1,302 @@
+---
+title: "05_trampling"
+output: html_document
+date: "2023-01-17"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+
+```{r Libraries}
+
+library(tidyverse)
+library(ggplot2)
+library(lme4)
+library(car)
+library(lmerTest)
+library(emmeans)
+
+```
+
+
+
+```{r Read data}
+
+soil_dir <- file.path("./01_data/Soils")
+trampl <- readxl::read_xlsx(
+  file.path(soil_dir, "kxi_beaverdell_plants.xlsx"), sheet = 2)
+meta <- readxl::read_xlsx(
+  file.path(soil_dir, "kxi_beaverdell_meta.xlsx"), sheet = 3) %>%
+  janitor::clean_names() %>%
+  mutate(passes = as.factor(number_of_passes))
+
+```
+
+
+
+```{r Compare only single passes}
+
+tramp_df <- left_join(trampl, meta)
+
+tramp_df_kvs <- tramp_df %>%
+  dplyr::filter(passes == "1")
+
+tramp_kvs_lm <- lmer((total_damage) ~ vehicle * month + (1|block / quadrat),
+                     data = tramp_df_kvs, na.action = na.exclude)
+
+anova(tramp_kvs_lm)
+plot(resid(tramp_kvs_lm))
+qqnorm(resid(tramp_kvs_lm))
+shapiro.test(resid(tramp_kvs_lm))
+#NORMAL!
+
+tramp_kvs_em_df <- as.data.frame(fortify(multcomp::cld(emmeans(
+  tramp_kvs_lm, ~ vehicle * month), Letters = letters)))
+
+ann_text1 <- data.frame(total_damage = 80, month = "Wet", lab = "vehicle  *",
+                        vehicle = factor("Std", levels = c("KXI", "Std")))
+ann_text2 <- data.frame(total_damage = 70, month = "Wet", lab = "water  **",
+                        vehicle = factor("Std", levels = c("KXI", "Std")))
+ann_text3 <- data.frame(total_damage = 60, month = "Wet", lab = "vehicle x water  NS",
+                        vehicle = factor("Std", levels = c("KXI", "Std")))
+
+tramp.kvs <- ggplot(
+  data = tramp_df_kvs, aes(x = month, y = total_damage, fill = month, group = month)) +
+  geom_boxplot() +
+  #scale_fill_manual(values=Paleta) +
+  ylab("% Trampled") +
+  xlab("Water Treatment") +
+  ggtitle("KXI vs. Standard Truck - Single pass") +
+  geom_text(data = tramp_kvs_em_df, aes(y = 110, label = .group)) +
+  facet_wrap(~vehicle) +
+  scale_fill_manual(values = c("orange","blue")) +
+  geom_text(data = ann_text1, aes(label = "Vehicle               *")) +
+  geom_text(data = ann_text2, aes(label = "Water                 **")) +
+  geom_text(data = ann_text3, aes(label = "Vehicle x Water  NS")) +
+  theme_bw() +
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 14, face = "bold"),
+    strip.text = element_text(size = 14)) +
+  theme(
+    legend.position = c(0.5, 0.2), 
+    legend.box.background = element_rect(colour = "black"),
+    legend.direction = "horizontal", axis.ticks.length = unit(0.5, "cm"),
+    axis.text = element_text(size = 12),
+    axis.title = element_text(size = 15)) +
+  guides(fill = guide_legend(title = "Treatment", title.position = "top",
+                             title.hjust = 0.5)) +
+  theme(
+    panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+    panel.background = element_blank(), axis.line = element_line(colour = "black")) +
+  theme(legend.position = "none")
+
+tramp.kvs
+
+# tiff("trampl.kvs.tiff", width = 20, height= 10, units ='cm', res=300)
+#   tramp.kvs
+#    dev.off()
+
+```
+
+
+
+```{r Width of track}
+
+width_kvs_lm <- lmer((width) ~ vehicle * month + (1|block / quadrat),
+                     data = tramp_df_kvs, na.action = na.exclude)
+
+anova(width_kvs_lm)
+plot(resid(width_kvs_lm))
+qqnorm(resid(width_kvs_lm))
+shapiro.test(resid(width_kvs_lm))
+
+width_kvs_em_df <- as.data.frame(fortify(multcomp::cld(emmeans(
+  width_kvs_lm, ~ vehicle * month), Letters = letters)))
+
+ann_text1 <- data.frame(width = 105, month = "Wet", lab = "vehicle  *",
+                        vehicle = factor("Std", levels = c("KXI", "Std")))
+ann_text2 <- data.frame(width = 100, month = "Wet", lab = "water  **",
+                        vehicle = factor("Std", levels = c("KXI", "Std")))
+ann_text3 <- data.frame(width = 95, month = "Wet", lab = "vehicle x water  NS",
+                        vehicle = factor("Std", levels = c("KXI", "Std")))
+
+width_kvs.kvs <- ggplot(
+  data = tramp_df_kvs,aes(x = month, y = width, fill = month, group = month)) +
+  geom_boxplot() + 
+  #scale_fill_manual(values=Paleta) +
+  ylab("Width of tracks (cm)") +
+  xlab("Water Treatment") +
+  geom_text(data = width_kvs_em_df, aes(y = 80, label = .group)) +
+  ggtitle(" KXI vs. Standard Truck - Single pass") +
+  facet_wrap(~vehicle, ncol = 2) +
+  scale_fill_manual(values=c("orange","blue")) +
+  geom_text(data = ann_text1, aes(label = "Vehicle               *")) +
+  geom_text(data = ann_text2, aes(label = "Water                 **")) +
+  geom_text(data = ann_text3, aes(label = "Vehicle x Water  NS")) +
+  theme_bw() +
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 14, face = "bold"),
+    strip.text = element_text(size = 14)) +
+  theme(
+    legend.position = c(0.5, 0.2), 
+    legend.box.background = element_rect(colour = "black"),
+    legend.direction = "horizontal", axis.ticks.length = unit(0.5, "cm"),
+    axis.text = element_text(size = 12),
+    axis.title = element_text(size = 15)) +
+  guides(fill = guide_legend(title = "Treatment", title.position = "top",
+                             title.hjust = 0.5)) +
+  theme(
+    panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+    panel.background = element_blank(), axis.line = element_line(colour = "black")) +
+  theme(legend.position = "none")
+
+width_kvs.kvs
+
+# 
+ # tiff("width_kvs.kvs.tiff", width = 20, height= 10, units ='cm', res=300)
+ # width_kvs.kvs
+ #  dev.off()
+
+
+```
+
+
+
+```{r KXI truck only}
+
+tramp_df.kxi <- tramp_df %>%
+  dplyr::filter(vehicle != "Std")
+
+tramp_df.kxi.avg <- tramp_df %>%
+  dplyr::filter(vehicle != "Std") %>%
+  group_by(block, lane, passes, month) %>%
+  summarise(avg_damage = mean(total_damage),
+            avg_width = mean(width))
+#------needed to use average instead because it was not normal
+
+
+tramp_lm.kxi <- lmer((total_damage) ~ month * passes + (1|block / quadrat),
+                     data = tramp_df.kxi, na.action = na.exclude)
+
+anova(tramp_lm.kxi)
+plot(resid(tramp_lm.kxi))
+qqnorm(resid(tramp_lm.kxi))
+shapiro.test(resid(tramp_lm.kxi))
+#avg is normal
+
+# tramp_glm<-glmer((avg_damage)~month*passes + (1|block) , data=tramp_df_kxi_avg, na.action = na.exclude, family=Gamma)
+# anova(tramp_glm)
+#pretty much same results as lmer
+
+tramp_em_df <- as.data.frame(fortify(multcomp::cld(emmeans(
+  tramp_lm.kxi, ~ passes * month), Letters = letters)))
+
+ann_text1 <- data.frame(total_damage = 30, month = "Wet", lab = "water  *",
+                        passes = factor("30", levels = c("0", "1", "10", "30")))
+ann_text2 <- data.frame(total_damage = 25, month = "Wet", lab = "passes  ***",
+                        passes = factor("30", levels = c("0", "1", "10", "30")))
+ann_text3 <- data.frame(total_damage = 20, month = "Wet", lab = "water x passes  **",
+                        passes = factor("30", levels = c("0", "1", "10", "30")))
+
+tramp.kxi <- ggplot(
+  data = tramp_df.kxi, aes(x = month, y = total_damage, fill = passes, group = month)) +
+  geom_boxplot() + 
+  #scale_fill_manual(values=Paleta) +
+  ylab("% Trampled") +
+  xlab("Water Treatment") +
+  ggtitle(" KXI Truck - 1, 10, & 30 passes") +
+  facet_wrap(~passes, ncol = 3) +
+  geom_text(data = ann_text1, aes(label = "Water                 NS", hjust = 0.8)) +
+  geom_text(data = ann_text2, aes(label = "Passes                ***", hjust = 0.78)) +
+  geom_text(data = ann_text3, aes(label = "Passes x Water     *", hjust = 0.8)) +
+  geom_text(data = tramp_em_df, aes(y = 110, label = .group)) +
+  scale_fill_grey() +
+  theme_bw() +
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 14, face = "bold"),
+    strip.text = element_text(size = 14)) +
+  theme(
+    legend.position = c(0.5, 0.2), 
+    legend.box.background = element_rect(colour = "black"),
+    legend.direction = "horizontal", axis.ticks.length = unit(0.5, "cm"),
+    axis.text = element_text(size = 12),
+    axis.title = element_text(size = 15)) +
+  guides(fill = guide_legend(title = "Treatment", title.position = "top",
+                             title.hjust = 0.5)) +
+  theme(
+    panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+    panel.background = element_blank(), axis.line = element_line(colour = "black")) +
+  theme(legend.position = "none")
+
+tramp.kxi
+
+#  tiff("trampl.kxi.tiff", width = 20, height= 10, units ='cm', res=300)
+# tramp.kxi
+# dev.off()
+
+```
+
+
+
+```{r KXI only_width of track}
+
+width_lm.kxi <- lmer((width) ~ month * passes + (1|block / quadrat), 
+                     data = tramp_df.kxi, na.action = na.exclude)
+
+anova(width_lm.kxi)
+plot(resid(width_lm.kxi))
+qqnorm(resid(width_lm.kxi))
+shapiro.test(resid(width_lm.kxi))
+
+width_em_df <- as.data.frame(fortify(multcomp::cld(emmeans(
+  width_lm.kxi, ~ passes * month), Letters = letters)))
+
+ann_text1 <- data.frame(width = 15, month = "Wet", lab = "passes  ***",
+                        passes = factor("30", levels = c("0", "1", "10", "30")))
+ann_text2 <- data.frame(width = 10, month = "Wet", lab = "water  NS",
+                        passes = factor("30", levels = c("0", "1", "10", "30")))
+ann_text3 <- data.frame(width = 5, month = "Wet", lab = "passes x water  NS",
+                        passes = factor("30", levels = c("0", "1", "10", "30")))
+
+width.kxi <- ggplot(
+  data = tramp_df.kxi, aes(x = month, y = width, fill = passes, group = month)) +
+  geom_boxplot() + 
+  #scale_fill_manual(values=Paleta) +
+  ylab("Width of tracks (cm)") +
+  xlab("Water Treatment") +
+  ggtitle(" KXI Truck - 1, 10, & 30 passes") +
+  facet_wrap(~passes, ncol = 3) +
+  geom_text(data = ann_text1, aes(label = "Water                   NS", hjust = 0.8)) +
+  geom_text(data = ann_text2, aes(label = "Passes                  ***", hjust = 0.78)) +
+  geom_text(data = ann_text3, aes(label = "Passes x Water     NS", hjust = 0.78)) +
+  #geom_text(data = width_em_df, aes(y = 110, label = .group))+
+  scale_fill_grey() +
+  theme_bw() +
+  geom_text(data = tramp_em_df, aes(y = 110, label = .group)) +
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 14, face = "bold"), 
+    strip.text = element_text(size = 14)) +
+  theme(
+    legend.position = c(0.5, 0.2), 
+    legend.box.background = element_rect(colour = "black"),
+    legend.direction = "horizontal", axis.ticks.length = unit(0.5, "cm"),
+    axis.text = element_text(size = 12),
+    axis.title = element_text(size = 15)) +
+  guides(fill = guide_legend(title = "Treatment", title.position = "top",
+                             title.hjust = 0.5)) +
+  theme(
+    panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+    panel.background = element_blank(), axis.line = element_line(colour = "black")) +
+  theme(legend.position = "none")
+
+width.kxi
+
+#  tiff("widthl.kxi.tiff", width = 20, height= 10, units ='cm', res=300)
+# width.kxi
+# dev.off()
+
+```
+

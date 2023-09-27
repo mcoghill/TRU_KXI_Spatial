@@ -37,3 +37,8 @@ rsconnect/
 
 # Folders in project
 00_rasters
+
+# File types
+*.prj
+*.tfw
+*.tif

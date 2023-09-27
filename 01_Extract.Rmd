@@ -28,7 +28,7 @@ First, we will set directories and import raster files for the Beaverdell drough
 expt <- "Beaverdell_Drought"
 
 rast_dir <- file.path("./00_rasters", expt)
-out_dir <- file.path("./01_data_output")
+out_dir <- file.path("./01_data/Remote_Sensing")
 
 spec_indices <- rast(list.files(rast_dir, pattern = ".tif$", full.names = TRUE))
 

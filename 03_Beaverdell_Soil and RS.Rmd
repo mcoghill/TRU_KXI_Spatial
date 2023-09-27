@@ -1,0 +1,933 @@
+---
+title: "03_Beaverdell_Soil and RS"
+author: "Matthew Coghill"
+date: "2023-01-16"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+SP = single pass
+kvs = KXI vs Standard
+
+```{r Libraries}
+
+library(tidyverse)
+library(ggplot2)
+library(lme4)
+library(car)
+library(lmerTest)
+library(emmeans)
+
+```
+
+
+
+```{r Read data and add columns}
+
+rs_dir <- file.path("./01_data/Remote_Sensing")
+soil_dir <- file.path("./01_data/Soils")
+msi <- read.csv(
+  file.path(rs_dir, "Beaverdell_Drought_mean_index_values.csv"), header = TRUE) %>%
+  mutate(truck = if_else(Vehicle == "Control", "none", Vehicle),
+         water = if_else(Vehicle == "Control", "A", Water),
+         distance = as.factor(Distance))%>%
+  mutate(replace(., is.na(.), 0))
+
+```
+
+
+
+```{r Compare only single passes}
+
+soil <- read.csv(file.path(soil_dir, "kxi_beaverdell_soil.csv"), header = TRUE) %>%
+  janitor::clean_names()
+
+meta <- readxl::read_xlsx(file.path(soil_dir, "kxi_beaverdell_meta.xlsx"), sheet = 3) %>%
+  janitor::clean_names() %>%
+  rename(water = month, passes = number_of_passes)
+
+soil_df <- left_join(soil, meta, by = c("block", "lane")) %>% 
+  filter(pre_post == "post") %>%
+  mutate(volume = (30.2 + 20.8 + 30.7 + 31.9 + 31.8) / 5, 
+         coarse = wet_soil_unseived - wet_soil_seived,
+         gwc = (wet_soil_seived - dry_soil_seived_g) / dry_soil_seived_g, 
+         bd = dry_soil_seived_g / volume,
+         Distance = case_when(
+           quadrat == "Q1" ~ 11,
+           quadrat == "Q2" ~ 15,
+           quadrat == "Q3" ~ 20,
+           quadrat == "Q4" ~ 24,
+           TRUE ~ 0))
+
+```
+
+
+
+
+```{r Single pass_Control_GNDVI}
+
+msi.single <- msi %>%
+  filter(Passes <= 1)
+
+soil.single <- soil_df %>%
+  filter(passes <= 1)
+
+#Ambient water
+msi.single.sa <- msi.single %>%
+  filter(Distance > 10 , Distance < 25)
+soil.single.sa <- soil.single %>%
+  filter(Distance > 10 , Distance < 25)
+
+gndvi.lmer.sa <- lmer(exp(GNDVI) ~ truck + (1|Block / distance),
+                      data = subset(msi.single.sa, water == "A"))
+
+anova(gndvi.lmer.sa)
+plot(gndvi.lmer.sa)
+qqnorm(resid(gndvi.lmer.sa))
+hist(resid(gndvi.lmer.sa))
+shapiro.test(resid(gndvi.lmer.sa))
+
+gndvi.lmer.sa.em <- multcomp::cld(emmeans(gndvi.lmer.sa, ~ truck), Letters = letters) 
+
+gndvi.sa.plot <- msi.single.sa %>%
+  filter(water == "A") %>%
+  ggplot(aes(x = truck, y = GNDVI, color = truck)) +
+  geom_boxplot() +
+  # facet_wrap(~water) +
+  theme_bw() +
+  labs(y = "GNDVI", x = "Vehicle") +
+  # scale_color_grey() +
+  scale_color_manual(
+    labels = c("None", "KXI", "Standard"),
+    limits = c("none", "KXI", "Standard"),
+    breaks = c("none", "KXI", "Standard"),
+    values = c("black", "red", "gray60")) +
+  scale_x_discrete(
+    labels = c("None", "KXI", "Standard"),
+    limits = c("none", "KXI", "Standard"),
+    breaks = c("none", "KXI", "Standard")) +
+  ggtitle(" Single Pass vs. None") +
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 14, face = "bold"),
+    strip.text = element_text(size = 14)) +
+  theme(
+    legend.position = c(0.5, 0.2), 
+    legend.box.background = element_rect(colour = "black"),
+    legend.direction = "horizontal", axis.ticks.length = unit(0.5, "cm"),
+    axis.text = element_text(size = 12),
+    axis.title = element_text(size = 15)) +
+  guides(fill = guide_legend(title = "Treatment", title.position = "top",
+                             title.hjust = 0.5)) +
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+        panel.background = element_blank(), axis.line = element_line(colour = "black")) +
+  theme(legend.position = "none")+
+  geom_text(data = gndvi.lmer.sa.em, aes(y = 1, label = .group)) +
+  ylim(0, 1)
+
+gndvi.sa.plot
+
+#  tiff("gndvi.kvs.tiff", width = 10, height= 8, units ='cm', res=300)
+#  gndvi.sa.plot
+# dev.off()
+
+```
+
+
+
+```{r Single pass_control_NDRE}
+
+ndre.lmer.sa <- lmer((NDRE) ~ truck + (1|Block/distance),
+                     data = subset(msi.single.sa, water == "A"))
+
+anova(ndre.lmer.sa)
+plot(ndre.lmer.sa)
+qqnorm(resid(ndre.lmer.sa))
+hist(resid(ndre.lmer.sa))
+shapiro.test(resid(ndre.lmer.sa))
+
+ndre.lmer.sa.em <- multcomp::cld(emmeans(ndre.lmer.sa, ~ truck), Letters = letters) 
+
+ndre.sa.plot <-msi.single.sa %>%
+  filter(water == "A") %>%
+  ggplot(aes(x = truck, y = NDRE, color = truck)) +
+  geom_boxplot() +
+  # facet_wrap(~water) +
+  theme_bw() +
+  labs(y = "ndre", x = "Vehicle") +
+  # scale_color_grey() +
+  scale_color_manual(
+    labels = c("None", "KXI", "Standard"),
+    limits = c("none", "KXI", "Standard"),
+    breaks = c("none", "KXI", "Standard"),
+    values = c("black", "red", "gray60")) +
+  scale_x_discrete(
+    labels = c("None", "KXI", "Standard"),
+    limits = c("none", "KXI", "Standard"),
+    breaks = c("none", "KXI", "Standard")) +
+  ggtitle(" Single Pass vs. None") +
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 14, face = "bold"),
+    strip.text = element_text(size = 14)) +
+  theme(
+    legend.position = c(0.5, 0.2), 
+    legend.box.background = element_rect(colour = "black"),
+    legend.direction = "horizontal", axis.ticks.length = unit(0.5, "cm"),
+    axis.text = element_text(size = 12),
+    axis.title = element_text(size = 15)) +
+  guides(fill = guide_legend(title = "Treatment", title.position = "top",
+                             title.hjust = 0.5)) +
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+        panel.background = element_blank(), axis.line = element_line(colour = "black")) +
+  theme(legend.position = "none") +
+  geom_text(data = ndre.lmer.sa.em, aes(y = 1, label = .group)) +
+  ylim(0, 1)
+
+ndre.sa.plot
+
+#  tiff("ndre.kvs.tiff", width = 10, height= 8, units ='cm', res=300)
+#  ndre.sa.plot
+# dev.off()
+
+```
+
+
+
+```{r Single pass_control_bulk density}
+
+bd.lmer.sa <- lmer((bd) ~ vehicle + (1|block / Distance),
+                   data = subset(soil.single.sa, water == "Ambient"))
+
+anova(bd.lmer.sa)
+plot(bd.lmer.sa)
+qqnorm(resid(bd.lmer.sa))
+hist(resid(bd.lmer.sa))
+shapiro.test(resid(bd.lmer.sa))
+
+bd.lmer.sa.em <- multcomp::cld(emmeans(bd.lmer.sa, ~ vehicle), Letters = letters) 
+
+bd.sa.plot <- soil.single.sa %>%
+  filter(water == "Ambient") %>%
+  ggplot(aes(x = vehicle, y = bd, color = vehicle)) +
+  geom_boxplot() +
+  # facet_wrap(~water)+
+  theme_bw() +
+  labs(y = "bd", x = "Vehicle") +
+  # scale_color_grey() +
+  scale_color_manual(
+    labels = c("None", "KXI", "Standard"),
+    limits = c("None", "KXI", "Std"),
+    breaks = c("None", "KXI", "Std"),
+    values = c("black", "red", "gray60")) +
+  scale_x_discrete(
+    labels = c("None", "KXI", "Standard"),
+    limits = c("None", "KXI", "Std"),
+    breaks = c("None", "KXI", "Std")) +
+  ggtitle(" Single Pass vs. None") +
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 14, face = "bold"),
+    strip.text = element_text(size = 14)) +
+  theme(
+    legend.position = c(0.5, 0.2), 
+    legend.box.background = element_rect(colour = "black"),
+    legend.direction = "horizontal", axis.ticks.length = unit(0.5, "cm"),
+    axis.text = element_text(size = 12),
+    axis.title = element_text(size = 15)) +
+  guides(fill = guide_legend(title = "Treatment", title.position = "top",
+                             title.hjust = 0.5)) +
+  theme(panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+        panel.background = element_blank(), axis.line = element_line(colour = "black")) +
+  theme(legend.position = "none") +
+  geom_text(data = bd.lmer.sa.em, aes(y = 1, label = .group)) +
+  ylim(0, 1)
+
+bd.sa.plot
+
+#  tiff("bd.kvs.tiff", width = 10, height= 8, units ='cm', res=300)
+#  bd.sa.plot
+# dev.off()
+
+```
+
+
+
+```{r KXI vs standard}
+
+gndvi.kvs.lmer.sa <- lmer(exp(GNDVI) ~ truck * water + (1|Block / distance), 
+                          data = subset(msi.single.sa, truck != "none"))
+
+anova(gndvi.kvs.lmer.sa)
+plot(gndvi.kvs.lmer.sa)
+qqnorm(resid(gndvi.kvs.lmer.sa))
+hist(resid(gndvi.kvs.lmer.sa))
+shapiro.test(resid(gndvi.kvs.lmer.sa))
+
+gndvi.kvs.lmer.sa.em <- multcomp::cld(emmeans(
+  gndvi.kvs.lmer.sa, ~ truck * water), Letters = letters) 
+
+gndvi.kvs.sa.plot <- msi.single.sa %>%
+  filter(truck != "none") %>%
+  ggplot(aes(x = water, y = GNDVI, color = water)) +
+  geom_boxplot() +
+  facet_wrap(~truck) +
+  theme_bw() +
+  labs(y = "GNDVI", x = "Vehicle") +
+  # scale_color_grey() +
+  scale_color_manual(values = c("orange", "blue")) +
+  ggtitle(" Single Pass vs. None") +
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 14, face = "bold"),
+    strip.text = element_text(size = 14)) +
+  theme(
+    legend.position = c(0.5, 0.2),
+    legend.box.background = element_rect(colour = "black"),
+    legend.direction = "horizontal", axis.ticks.length = unit(0.5, "cm"),
+    axis.text = element_text(size = 12),
+    axis.title = element_text(size = 15)) +
+  guides(fill = guide_legend(title = "Treatment", title.position = "top",
+                             title.hjust = 0.5))+
+  theme(
+    panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+    panel.background = element_blank(), axis.line = element_line(colour = "black"))+
+  theme(legend.position = "none") +
+  geom_text(data = gndvi.kvs.lmer.sa.em, aes(y = 1, label = .group))+
+  ylim(0, 1)
+
+gndvi.kvs.sa.plot
+
+```
+
+
+
+```{r Single pass_Start}
+
+# Ambient water
+msi.single.start <- msi.single %>%
+  filter(Distance < 10)
+
+gndvi.lmer.start <- lmer(exp(GNDVI) ~ truck + (1|Block / distance),
+                         data = subset(msi.single.start, water == "A"))
+
+anova(gndvi.lmer.start)
+plot(gndvi.lmer.start)
+qqnorm(resid(gndvi.lmer.start))
+hist(resid(gndvi.lmer.start))
+shapiro.test(resid(gndvi.lmer.start))
+
+gndvi.lmer.start.em <- multcomp::cld(emmeans(
+  gndvi.lmer.start, ~ truck), Letters = letters) 
+
+gndvi.start.plot <- msi.single.start %>%
+  filter(water == "A") %>%
+  ggplot(aes(x = truck, y = GNDVI, color = truck)) +
+  geom_boxplot() +
+  # facet_wrap(~water) +
+  theme_bw() +
+  labs(y = "GNDVI", x = "Vehicle") +
+  # scale_color_grey() +
+  scale_color_manual(
+    labels = c("None", "KXI", "Standard"),
+    limits = c("none", "KXI", "Standard"),
+    breaks = c("none", "KXI", "Standard"),
+    values = c("black", "red", "gray60")) +
+  scale_x_discrete(
+    labels = c("None", "KXI", "Standard"),
+    limits = c("none", "KXI", "Standard"),
+    breaks = c("none", "KXI", "Standard")) +
+  ggtitle(" Single Pass vs. None") +
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 14, face="bold"),
+    strip.text = element_text(size = 14)) +
+  theme(
+    legend.position = c(0.5, 0.2), 
+    legend.box.background = element_rect(colour = "black"),
+    legend.direction = "horizontal", axis.ticks.length = unit(0.5, "cm"),
+    axis.text = element_text(size = 12),
+    axis.title = element_text(size = 15)) +
+  guides(fill = guide_legend(title = "Treatment", title.position = "top",
+                             title.hjust = 0.5)) +
+  theme(
+    panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+    panel.background = element_blank(), axis.line = element_line(colour = "black")) +
+  theme(legend.position = "none") +
+  geom_text(data = gndvi.lmer.start.em, aes(y = 1, label = .group)) +
+  ylim(0, 1)
+
+gndvi.start.plot
+
+#  tiff("gndvi.kvs.tiff", width = 10, height= 8, units ='cm', res=300)
+#  gndvi.start.plot
+# dev.off()
+
+
+```
+
+
+
+```{r Single pass_End area}
+
+# Ambient water
+msi.single.end <- msi.single %>%
+  filter(Distance > 25)
+
+gndvi.lmer.end <- lmer(log(GNDVI) ~ truck + (1|Block / distance),
+                       data = subset(msi.single.end, water == "A"))
+
+anova(gndvi.lmer.end)
+plot(gndvi.lmer.end)
+qqnorm(resid(gndvi.lmer.end))
+hist(resid(gndvi.lmer.end))
+shapiro.test(resid(gndvi.lmer.end))
+
+gndvi.lmer.end.em <- multcomp::cld(emmeans(
+  gndvi.lmer.end, ~ truck), Letters = letters) 
+
+gndvi.end.plot <- msi.single.end %>%
+  filter(water == "A") %>%
+  ggplot(aes(x = truck, y = GNDVI, color = truck)) +
+  geom_boxplot() +
+  # facet_wrap(~water) +
+  theme_bw() +
+  labs(y = "GNDVI", x = "Vehicle") +
+  # scale_color_grey() +
+  scale_color_manual(
+    labels = c("None", "KXI", "Standard"),
+    limits = c("none", "KXI", "Standard"),
+    breaks = c("none", "KXI", "Standard"),
+    values = c("black", "red", "gray60")) +
+  scale_x_discrete(
+    labels = c("None", "KXI", "Standard"),
+    limits = c("none", "KXI", "Standard"),
+    breaks = c("none", "KXI", "Standard")) +
+  ggtitle(" Single Pass vs. None") +
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 14, face = "bold"),
+    strip.text = element_text(size = 14)) +
+  theme(
+    legend.position = c(0.5, 0.2),
+    legend.box.background = element_rect(colour = "black"),
+    legend.direction = "horizontal", axis.ticks.length = unit(0.5, "cm"),
+    axis.text = element_text(size = 12),
+    axis.title = element_text(size = 15)) +
+  guides(fill = guide_legend(title = "Treatment", title.position = "top",
+                             title.hjust = 0.5)) +
+  theme(
+    panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+    panel.background = element_blank(), axis.line = element_line(colour = "black")) +
+  theme(legend.position = "none") +
+  geom_text(data = gndvi.lmer.end.em, aes(y = 1, label = .group)) +
+  ylim(0, 1)
+
+gndvi.end.plot
+
+#  tiff("gndvi.kvs.tiff", width = 10, height= 8, units ='cm', res=300)
+#  gndvi.end.plot
+# dev.off()
+
+```
+
+
+
+
+```{r KXI pass}
+
+msi.KXI <- msi %>%
+  filter(truck != "Standard") %>%
+  mutate(passes = as.factor(Passes))
+
+```
+
+
+
+```{r KXI pass_sample area}
+
+#Ambient water
+msi.KXI.sa <- msi.KXI %>%
+  filter(Distance > 10 , Distance < 25)
+
+gndvi.lmer.sa <- lmer(exp(GNDVI) ~ passes + (1|Block / distance),
+                      data = subset(msi.KXI.sa, water == "A"))
+
+anova(gndvi.lmer.sa)
+plot(gndvi.lmer.sa)
+qqnorm(resid(gndvi.lmer.sa))
+hist(resid(gndvi.lmer.sa))
+shapiro.test(resid(gndvi.lmer.sa))
+
+gndvi.lmer.sa.em.kxi <- multcomp::cld(emmeans(
+  gndvi.lmer.sa, ~ passes), Letters = letters) 
+
+gndvi.sa.plot.kxi <- msi.KXI.sa %>%
+  filter(water == "A") %>%
+  ggplot(aes(x = passes, y = GNDVI, color = passes)) +
+  geom_boxplot() +
+  # facet_wrap(~water) +
+  theme_bw() +
+  labs(y = "GNDVI", x = "Vehicle") +
+  # scale_color_grey() +
+  scale_color_manual(values=c("black", "red", "red", "red")) +
+  ggtitle(" KXI Pass vs. None") +
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 14, face = "bold"),
+    strip.text = element_text(size = 14)) +
+  #theme(legend.position =c(.5,.2), legend.box.background = element_rect(colour = "black"),
+  #    legend.direction = "horizontal",axis.ticks.length=unit(.5, "cm"), axis.text=element_text(size=12),
+  #   axis.title=element_text(size=15))+
+  #guides(fill = guide_legend(title = "Treatment", title.position = "top",title.hjust= .5))+
+  theme(
+    panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+    panel.background = element_blank(), axis.line = element_line(colour = "black")) +
+  theme(legend.position = "none") +
+  geom_text(data = gndvi.lmer.sa.em.kxi, aes(y = 1, label = .group)) +
+  theme(
+    legend.position = "none", panel.grid.major = element_blank(), 
+    panel.grid.minor = element_blank(), panel.background = element_blank(), 
+    axis.line = element_line(colour = "black")) +
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 14, face = "bold"),
+    strip.text = element_text(size = 14)) +
+  theme(
+    legend.position = "none", 
+    legend.box.background = element_rect(colour = "black"),
+    legend.direction = "horizontal", axis.ticks.length = unit(0.5, "cm"),
+    axis.text = element_text(size = 12),
+    axis.title = element_text(size = 15)) +
+  ylim(0, 1)
+
+gndvi.sa.plot.kxi
+
+#  tiff("gndvi.kvs.tiff", width = 10, height= 8, units ='cm', res=300)
+#  gndvi.sa.plot
+# dev.off()
+
+
+```
+
+
+
+
+```{r KXI vs Standard}
+
+gndvi.KXI.lmer.sa <- lmer(exp(GNDVI) ~ passes * water + (1|Block / distance),
+                          data = subset(msi.KXI.sa, truck != "none"))
+
+anova(gndvi.KXI.lmer.sa)
+plot(gndvi.KXI.lmer.sa)
+qqnorm(resid(gndvi.KXI.lmer.sa))
+hist(resid(gndvi.KXI.lmer.sa))
+shapiro.test(resid(gndvi.KXI.lmer.sa))
+
+gndvi.KXI.lmer.sa.em <- multcomp::cld(emmeans(
+  gndvi.KXI.lmer.sa, ~ passes * water), Letters = letters) 
+
+gndvi.KXI.sa.plot.water <- msi.KXI.sa %>%
+  filter(truck != "none") %>%
+  ggplot(aes(x = passes, y = GNDVI, color = water)) +
+  geom_boxplot() +
+  facet_wrap(~water) +
+  theme_bw() +
+  labs(y = "GNDVI", x = "Vehicle") +
+  # scale_color_grey() +
+  scale_color_manual(values = c("orange", "blue")) +
+  ggtitle(" KXI Pass vs. None") +
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 14, face = "bold"),
+    strip.text = element_text(size = 14)) +
+  theme(
+    legend.position = c(0.5, 0.2), 
+    legend.box.background = element_rect(colour = "black"),
+    legend.direction = "horizontal", axis.ticks.length = unit(0.5, "cm"),
+    axis.text = element_text(size = 12),
+    axis.title = element_text(size = 15)) +
+  guides(fill = guide_legend(title = "Treatment", title.position = "top",
+                             title.hjust = 0.5)) +
+  theme(
+    panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+    panel.background = element_blank(), axis.line = element_line(colour = "black")) +
+  theme(legend.position = "none") +
+  geom_text(data = gndvi.KXI.lmer.sa.em, aes(y = 1, label = .group)) +
+  ylim(0, 1)
+
+gndvi.KXI.sa.plot.water
+
+```
+
+
+
+```{r KXI Pass_Start}
+
+# Ambient water
+msi.KXI.start <- msi.KXI %>%
+  filter(Distance < 10)
+
+gndvi.lmer.start.kxi <- lmer(log(GNDVI) ~ passes + (1|Block / distance),
+                             data = subset(msi.KXI.start, water == "A"))
+
+anova(gndvi.lmer.start.kxi)
+plot(gndvi.lmer.start.kxi)
+qqnorm(resid(gndvi.lmer.start.kxi))
+hist(resid(gndvi.lmer.start.kxi))
+shapiro.test(resid(gndvi.lmer.start.kxi))
+
+gndvi.lmer.start.em.kxi=multcomp::cld(emmeans(
+  gndvi.lmer.start.kxi, ~ passes), Letters = letters) 
+
+gndvi.start.plot.kxi <- msi.KXI.start %>%
+  filter(water == "A") %>%
+  ggplot(aes(x = passes, y = GNDVI, color = passes)) +
+  geom_boxplot() +
+  # facet_wrap(~water) +
+  theme_bw() +
+  labs(y = "GNDVI", x = "Vehicle") +
+  # scale_color_grey() +
+  scale_color_manual(values = c("black", "red", "red", "red")) +
+  ggtitle(" KXI Pass vs. None") +
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 14, face = "bold"),
+    strip.text = element_text(size = 14)) +
+  theme(
+    legend.position = c(0.5, 0.2), 
+    legend.box.background = element_rect(colour = "black"),
+    legend.direction = "horizontal", axis.ticks.length = unit(0.5, "cm"),
+    axis.text = element_text(size = 12),
+    axis.title = element_text(size = 15)) +
+  guides(fill = guide_legend(title = "Treatment", title.position = "top",
+                             title.hjust = 0.5)) +
+  theme(
+    panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+    panel.background = element_blank(), axis.line = element_line(colour = "black")) +
+  theme(legend.position = "none") +
+  geom_text(data = gndvi.lmer.start.em.kxi, aes(y = 1, label = .group)) +
+  ylim(0, 1)
+
+gndvi.start.plot.kxi
+
+#  tiff("gndvi.kvs.tiff", width = 10, height= 8, units ='cm', res=300)
+#  gndvi.start.plot
+# dev.off()
+
+```
+
+
+
+```{r KXI Pass_Sample area}
+
+# Ambient water
+msi.KXI.end <- msi.KXI %>%
+  filter(Distance > 25)
+
+gndvi.lmer.end.kxi <- lmer(log(GNDVI) ~ passes + (1|Block / distance),
+                           data = subset(msi.KXI.end, water == "A"))
+
+anova(gndvi.lmer.end.kxi)
+plot(gndvi.lmer.end.kxi)
+qqnorm(resid(gndvi.lmer.end.kxi))
+hist(resid(gndvi.lmer.end.kxi))
+shapiro.test(resid(gndvi.lmer.end.kxi))
+
+gndvi.lmer.end.em.kxi <- multcomp::cld(emmeans(
+  gndvi.lmer.end.kxi, ~ passes), Letters = letters) 
+
+gndvi.end.plot.kxi <- msi.KXI.end %>%
+  filter(water == "A") %>%
+  ggplot(aes(x = passes, y = GNDVI, color = passes)) +
+  geom_boxplot() +
+  # facet_wrap(~water) +
+  theme_bw() +
+  labs(y = "GNDVI", x = "Vehicle") +
+  # scale_color_grey() +
+  scale_color_manual(values = c("black", "red", "red", "red")) +
+  ggtitle(" KXI Pass vs. None") +
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 14, face = "bold"),
+    strip.text = element_text(size = 14)) +
+  theme(
+    legend.position =c(.5,.2), legend.box.background = element_rect(colour = "black"),
+    legend.direction = "horizontal", axis.ticks.length = unit(0.5, "cm"),
+    axis.text = element_text(size = 12),
+    axis.title = element_text(size = 15)) +
+  guides(fill = guide_legend(title = "Treatment", title.position = "top",
+                             title.hjust = 0.5)) +
+  theme(
+    panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+    panel.background = element_blank(), axis.line = element_line(colour = "black")) +
+  theme(legend.position = "none") +
+  geom_text(data = gndvi.lmer.end.em.kxi, aes(y = 1, label = .group)) +
+  ylim(0, 1)
+
+gndvi.end.plot.kxi
+
+#  tiff("gndvi.kvs.tiff", width = 10, height= 8, units ='cm', res=300)
+#  gndvi.end.plot
+# dev.off()
+
+```
+
+
+NOTE: I changed the "==" sign below to be %in%
+
+```{r Single passes (SP)}
+
+# does not include control
+soil_df_kvs <- soil_df %>%
+  dplyr::filter(passes %in% c("0", "1"))
+
+soil_df_kvs.avg <- soil_df_kvs %>%
+  group_by(block, lane, vehicle, water) %>%
+  summarize(bd = mean(bd))
+
+```
+
+
+
+```{r SP_Bulk density vs control}
+
+bd.sp.lm <- lmer((bd) ~ vehicle + (1|block / quadrat), 
+                 data = subset(soil_df_kvs, water == "Ambient"), 
+                 na.action = na.exclude)
+
+anova(bd.sp.lm)
+plot(resid(bd.sp.lm))
+qqnorm(resid(bd.sp.lm))
+shapiro.test(resid(bd.sp.lm))
+
+soil_em_df <- as.data.frame(fortify(multcomp::cld(emmeans(
+  bd.sp.lm, ~ vehicle), Letters = letters)))
+
+soil.kvs <- ggplot(data = soil_df_kvs, aes(x = vehicle, y = bd, color = vehicle)) +
+  geom_boxplot() +
+  # scale_fill_manual(values=Paleta) +
+  ylab("Bulk Density (g/cm3)") +
+  xlab("Vehicle") +
+  ylim(0, 2) +
+  ggtitle(" KXI vs. Standard Truck - Single pass") +
+  # facet_wrap(~vehicle) +
+  geom_text(data = soil_em_df, aes(y = 1.5, label = .group)) +
+  scale_color_manual(values = c("black", "red", "gray50")) +
+  scale_x_discrete(limits=c("None", "KXI", "Std")) +
+  theme_bw() +
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 14, face = "bold"),
+    strip.text = element_text(size = 14)) +
+  theme(
+    legend.position = c(0.5, 0.2),
+    legend.box.background = element_rect(colour = "black"),
+    legend.direction = "horizontal", axis.ticks.length = unit(0.5, "cm"), 
+    axis.text = element_text(size = 12),
+    axis.title = element_text(size = 15)) +
+  guides(fill = guide_legend(title = "Treatment", title.position = "top",
+                             title.hjust = 0.5)) +
+  theme(
+    panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+    panel.background = element_blank(), axis.line = element_line(colour = "black")) +
+  theme(legend.position = "none")
+
+# tiff("soil.kvs.tiff", width = 20, height= 10, units ='cm', res=300)
+  soil.kvs
+# dev.off()
+
+```
+
+
+
+```{r SP_pH}
+
+ph.sp.lm <- lmer((ph) ~ vehicle + (1|block / quadrat), 
+                 data = subset(soil_df_kvs, water == "Ambient"), 
+                 na.action = na.exclude)
+
+anova(ph.sp.lm)
+plot(resid(ph.sp.lm))
+qqnorm(resid(ph.sp.lm))
+shapiro.test(resid(ph.sp.lm))
+
+soil_em_df_ph <- as.data.frame(fortify(multcomp::cld(emmeans(
+  ph.sp.lm, ~ vehicle), Letters = letters)))
+
+```
+
+
+
+```{r SP_Bulk density}
+
+bd.sp.lm2 <- lmer((bd) ~ vehicle * water + (1|block / quadrat),
+                  data = subset(soil_df_kvs, vehicle != "None"), 
+                  na.action = na.exclude)
+
+anova(bd.sp.lm2)
+plot(resid(bd.sp.lm2))
+qqnorm(resid(bd.sp.lm2))
+shapiro.test(resid(bd.sp.lm2))
+
+soil_em_df_bd2=as.data.frame(fortify(multcomp::cld(emmeans(
+  bd.sp.lm2, ~ vehicle * water), Letters = letters)))
+
+ph.sp.lm2 <- lmer((ph) ~ vehicle * water + (1|block / quadrat),
+                  data = subset(soil_df_kvs, vehicle != "None"), 
+                  na.action = na.exclude)
+
+anova(ph.sp.lm2)
+plot(resid(ph.sp.lm2))
+qqnorm(resid(ph.sp.lm2))
+shapiro.test(resid(ph.sp.lm2))
+
+soil_em_df_ph2 <- as.data.frame(fortify(multcomp::cld(emmeans(
+  ph.sp.lm2, ~ vehicle * water), Letters = letters)))
+
+```
+
+Compare KXI passes
+Remove outlier
+
+```{r KXI passes bd and ph}
+
+soil_df_kxi <- soil_df %>%
+  filter(vehicle != "Std") %>%
+  mutate(passes = as.factor(passes)) %>%
+  filter(block != "B"| lane != "8"| quadrat != "Q3")
+outlier_values <- boxplot.stats(soil_df_kxi$bd)$out  # outlier values.
+
+bd_lm.kxi <- lmer((bd) ~ passes + (1|block / quadrat), 
+                  data = subset(soil_df_kxi), na.action = na.exclude)
+
+anova(bd_lm.kxi)
+plot(resid(bd_lm.kxi))
+qqnorm(resid(bd_lm.kxi))
+shapiro.test(resid(bd_lm.kxi))
+
+soil_em_df_kxi <- as.data.frame(fortify(multcomp::cld(emmeans(
+  bd_lm.kxi, ~ passes), Letters = letters)))
+
+soil.kxi <- ggplot(data = soil_df_kxi, aes(x = passes, y = bd, color = passes)) +
+  geom_boxplot() +
+  # scale_fill_manual(values=Paleta) +
+  ylab("Bulk Density (g/cm3)") +
+  xlab("Number of passes") +
+  scale_color_manual(values = c("black", "red", "red", "red")) +
+  ggtitle(" KXI vs. Control - 0, 1, 10, 30") +
+  # facet_wrap(~water) +
+  geom_text(data = soil_em_df_kxi, aes(y = 1.7, label = .group)) +
+  theme_bw() +
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 14, face = "bold"),
+    strip.text = element_text(size = 14)) +
+  theme(
+    legend.position = c(0.5, 0.2),
+    legend.box.background = element_rect(colour = "black"),
+    legend.direction = "horizontal", axis.ticks.length = unit(0.5, "cm"),
+    axis.text = element_text(size = 12),
+    axis.title = element_text(size = 15)) +
+  guides(fill = guide_legend(title = "Treatment", title.position = "top",
+                             title.hjust = 0.5)) +
+  theme(
+    panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+    panel.background = element_blank(), axis.line = element_line(colour = "black")) +
+  theme(legend.position = "none") +
+  ylim(0, 2)
+# 
+# tiff("soil.kxi.tiff", width = 20, height= 10, units ='cm', res=300)
+soil.kxi
+# dev.off()
+
+per.bd <- soil_df_kxi %>%
+  group_by(passes) %>%
+  summarize(avg = mean(bd))
+
+(.876-.767)/((.876+.767)/2)*100
+
+```
+
+
+
+```{r PLOT FIXES FOR REPORT}
+
+# NDVI
+ndvi.kvs.lmer.sa <- lmer(exp(NDVI) ~ truck * water + (1|Block / distance), 
+                          data = subset(msi.single.sa, truck != "none"))
+
+anova(ndvi.kvs.lmer.sa)
+plot(ndvi.kvs.lmer.sa)
+qqnorm(resid(ndvi.kvs.lmer.sa))
+hist(resid(ndvi.kvs.lmer.sa))
+shapiro.test(resid(ndvi.kvs.lmer.sa))
+
+ndvi.kvs.lmer.sa.em <- as.data.frame(fortify(multcomp::cld(emmeans(
+  ndvi.kvs.lmer.sa, ~ truck * water, by = "truck"), Letters = letters)))
+
+ndvi.kvs.sa.plot <- msi.single.sa %>%
+  filter(truck != "none") %>%
+  ggplot(aes(x = water, y = NDVI, color = water)) +
+  geom_boxplot() +
+  facet_wrap(~truck) +
+  theme_bw() +
+  labs(y = "NDVI", x = "Vehicle") +
+  # scale_color_grey() +
+  scale_color_manual(values = c("orange", "blue")) +
+  ggtitle(" Single Pass vs. None") +
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 14, face = "bold"),
+    strip.text = element_text(size = 14)) +
+  theme(
+    legend.position = c(0.5, 0.2),
+    legend.box.background = element_rect(colour = "black"),
+    legend.direction = "horizontal", axis.ticks.length = unit(0.5, "cm"),
+    axis.text = element_text(size = 12),
+    axis.title = element_text(size = 15)) +
+  guides(fill = guide_legend(title = "Treatment", title.position = "top",
+                             title.hjust = 0.5))+
+  theme(
+    panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+    panel.background = element_blank(), axis.line = element_line(colour = "black"))+
+  theme(legend.position = "none") +
+  geom_text(data = ndvi.kvs.lmer.sa.em, aes(y = 1, label = .group))+
+  ylim(0, 1)
+
+ndvi.kvs.sa.plot
+
+# GNDVI
+gndvi.kvs.lmer.sa <- lmer(exp(GNDVI) ~ truck * water + (1|Block / distance), 
+                          data = subset(msi.single.sa, truck != "none"))
+
+anova(gndvi.kvs.lmer.sa)
+plot(gndvi.kvs.lmer.sa)
+qqnorm(resid(gndvi.kvs.lmer.sa))
+hist(resid(gndvi.kvs.lmer.sa))
+shapiro.test(resid(gndvi.kvs.lmer.sa))
+
+gndvi.kvs.lmer.sa.em <- as.data.frame(fortify(multcomp::cld(emmeans(
+  gndvi.kvs.lmer.sa, ~ truck * water, by = "truck"), Letters = letters)))
+
+gndvi.kvs.sa.plot <- msi.single.sa %>%
+  filter(truck != "none") %>%
+  ggplot(aes(x = water, y = GNDVI, color = water)) +
+  geom_boxplot() +
+  facet_wrap(~truck) +
+  theme_bw() +
+  labs(y = "GNDVI", x = "Vehicle") +
+  # scale_color_grey() +
+  scale_color_manual(values = c("orange", "blue")) +
+  ggtitle(" Single Pass vs. None") +
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 14, face = "bold"),
+    strip.text = element_text(size = 14)) +
+  theme(
+    legend.position = c(0.5, 0.2),
+    legend.box.background = element_rect(colour = "black"),
+    legend.direction = "horizontal", axis.ticks.length = unit(0.5, "cm"),
+    axis.text = element_text(size = 12),
+    axis.title = element_text(size = 15)) +
+  guides(fill = guide_legend(title = "Treatment", title.position = "top",
+                             title.hjust = 0.5))+
+  theme(
+    panel.grid.major = element_blank(), panel.grid.minor = element_blank(),
+    panel.background = element_blank(), axis.line = element_line(colour = "black"))+
+  theme(legend.position = "none") +
+  geom_text(data = gndvi.kvs.lmer.sa.em, aes(y = 1, label = .group))+
+  ylim(0, 1)
+
+gndvi.kvs.sa.plot
+
+```
+

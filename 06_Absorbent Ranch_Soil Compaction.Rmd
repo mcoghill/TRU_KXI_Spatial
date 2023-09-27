@@ -1,0 +1,59 @@
+---
+title: "06_Absorbent Ranch_Soil Compaction"
+output: html_document
+date: "2023-01-17"
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+
+
+```{r Libraries}
+
+library(tidyverse)
+library(lme4)
+library(lmerTest)
+library(emmeans)
+library(performance)
+
+```
+
+
+
+```{r Read data}
+
+soil_dir <- file.path("./01_data/Soils")
+penetrometer_turn <- readxl::read_xlsx(
+  file.path(soil_dir, "2022 KXI_penetrometer.xlsx"), sheet = 1) %>%
+  janitor::clean_names() %>%
+  pivot_longer(cols = starts_with("x")) %>%
+  separate(name, into = c("distance", "depth"), sep = "_") %>%
+  mutate(distance = str_sub(distance, start = 2),
+         passes = as.factor(passes),
+         distance = as.factor(distance),
+         depth = as.factor(depth))
+
+```
+
+
+
+
+```{r}
+
+compaction_graph <- penetrometer_turn %>%
+  ggplot(aes(x = passes, y = value, color = vehicle)) +
+  geom_boxplot()
+
+compaction_lm <- lmer((value) ~ passes + (1|block / distance), 
+                      data = subset(penetrometer_turn, depth = "1"), 
+                      na.action = na.exclude)
+anova(compaction_lm)
+performance::check_model(compaction_lm)
+
+compaction_lm_em_df <- as.data.frame(fortify(multcomp::cld(emmeans(
+  compaction_lm, ~ passes), Letters = letters)))
+
+```
+
